@@ -301,6 +301,59 @@ class LayoutTests(unittest.TestCase):
                     self.configure()
                 self.assertFalse(self.api.calls)
 
+    def test_timeout_captures_the_failed_observations_once_before_any_write(self):
+        self.api.sources[0].flags = 0
+        failed_snapshot = self.api.snapshot()
+        report = {"reason": "exact failed pair"}
+        with patch.object(self.api, "snapshot", return_value=failed_snapshot), \
+                patch("virtumon.windows_diagnostics.capture_metadata", return_value=report) as capture, \
+                patch("virtumon.windows_diagnostics.enrich_metadata", side_effect=lambda value, api: value) as enrich:
+            with self.assertRaisesRegex(W.WindowsLayoutError, "matches=1; flags=0x0") as caught:
+                self.configure()
+        self.assertIs(capture.call_args.args[0], failed_snapshot)
+        self.assertIs(capture.call_args.args[1], self.api.sources)
+        self.assertEqual(capture.call_args.kwargs["problem_device"], "VIRTUAL")
+        self.assertEqual(capture.call_count, 1)
+        self.assertEqual(enrich.call_count, 1)
+        self.assertEqual(caught.exception.diagnostics, {"reason": "exact failed pair", "phase": "arrival"})
+        self.assertFalse(self.api.calls)
+
+    def test_failed_diagnostic_capture_keeps_the_original_layout_error(self):
+        self.api.sources[0].flags = 0
+        with patch("virtumon.windows_diagnostics.capture_metadata", side_effect=RuntimeError("capture unavailable")):
+            with self.assertRaisesRegex(W.WindowsLayoutError, "consistent Windows display metadata.*matches=1") as caught:
+                self.configure()
+        self.assertEqual(caught.exception.diagnostics["capture_error"], "capture unavailable")
+        self.assertEqual(caught.exception.diagnostics["phase"], "arrival")
+        self.assertFalse(self.api.calls)
+
+    def test_failed_enrichment_does_not_discard_the_exact_failed_observations(self):
+        self.api.sources[0].flags = 0
+        report = {"problem": {"device": "VIRTUAL", "match_count": 1, "flags": [0]}}
+        with patch("virtumon.windows_diagnostics.capture_metadata", return_value=report), \
+                patch("virtumon.windows_diagnostics.enrich_metadata", side_effect=RuntimeError("supplement unavailable")):
+            with self.assertRaisesRegex(W.WindowsLayoutError, "matches=1; flags=0x0") as caught:
+                self.configure()
+        self.assertEqual(caught.exception.diagnostics["problem"], report["problem"])
+        self.assertEqual(caught.exception.diagnostics["enrichment_error"], "supplement unavailable")
+        self.assertFalse(self.api.calls)
+
+    def test_post_apply_metadata_diagnostic_survives_target_rollback_error_wrapper(self):
+        initial = W._records(self.api, self.api.snapshot())
+        failure = W.WindowsLayoutError("post-apply metadata mismatch")
+        failure.diagnostics = {"phase": "after-mode-apply", "problem_device": "VIRTUAL"}
+
+        def records(api, deadline, guard=None, *, phase="discovery"):
+            if phase == "after-mode-apply":
+                raise failure
+            return initial
+
+        with patch.object(W, "_active_records", side_effect=records):
+            with self.assertRaisesRegex(W.WindowsLayoutError, "post-apply metadata mismatch") as caught:
+                self.configure()
+        self.assertEqual(caught.exception.diagnostics, failure.diagnostics)
+        self.assertEqual([device for device, _, _ in self.api.calls], ["VIRTUAL", "VIRTUAL", "VIRTUAL"])
+
     def test_empty_ccd_cannot_hide_an_attached_gdi_desktop(self):
         with self.assertRaisesRegex(W._PendingTopology, "no active paths.*attached display"):
             W._records(self.api, snapshot([]))

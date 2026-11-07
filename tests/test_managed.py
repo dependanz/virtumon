@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass, replace
 import itertools
+import json
 from pathlib import Path
 import tempfile
 import unittest
@@ -101,6 +102,7 @@ class FakeDriverFactory:
         self.open_count = 0
         self.before_add = None
         self.after_add = None
+        self.before_remove = None
         self.add_error = None
         self.remove_error = None
         self.remove_errors = {}
@@ -140,6 +142,8 @@ class FakeDriverFactory:
 
             def remove(self, monitor_id):
                 factory.remove_calls.append(monitor_id)
+                if factory.before_remove:
+                    factory.before_remove(monitor_id)
                 error = factory.remove_errors.get(monitor_id, factory.remove_error)
                 if error:
                     raise error
@@ -225,6 +229,61 @@ class ManagedMonitorTests(unittest.TestCase):
         self.assertEqual(self.driver.remove_calls, [monitor_id])
         self.assertNotIn(monitor_id, self.driver.native)
         self.assertEqual(self.store.load(), [])
+        self.assert_unrelated_unchanged()
+
+    def test_failed_native_observation_is_saved_before_exact_guid_cleanup(self):
+        from virtumon.windows_layout import WindowsLayoutError
+        failure = WindowsLayoutError("GDI source does not match CCD")
+        failure.diagnostics = {"phase": "arrival", "problem_device": "DISPLAY28", "flags": [0]}
+        self.layout.configure_error = failure
+        reports = []
+
+        def inspect_before_removal(monitor_id):
+            report_path = self.store.directory / "diagnostics" / f"create-{monitor_id}.json"
+            report = json.loads(report_path.read_text(encoding="utf-8"))
+            self.assertIn(monitor_id, self.driver.native)
+            self.assertEqual(report["monitor_id"], monitor_id)
+            self.assertEqual(report["driver_identity"], asdict(self.driver.native[monitor_id]))
+            self.assertEqual(report["requested_position"], [3840, 400])
+            self.assertEqual(report["native_metadata"], failure.diagnostics)
+            self.assertEqual(report["operation_phase"], "configure")
+            self.assertEqual(report["before_creation"], [asdict(self.physical), asdict(self.unrelated)])
+            reports.append(report_path)
+
+        self.driver.before_remove = inspect_before_removal
+        with self.assertRaisesRegex(OperationError, "GDI source does not match CCD.*No new virtumon was retained.*Diagnostic report:"):
+            self.manager.create(request())
+        self.assertEqual(len(reports), 1)
+        self.assertEqual(self.store.load(), [])
+        self.assertEqual(self.driver.native, {})
+        self.assert_unrelated_unchanged()
+
+    def test_diagnostic_write_failure_does_not_prevent_guid_cleanup(self):
+        from virtumon.windows_layout import WindowsLayoutError
+        failure = WindowsLayoutError("original metadata mismatch")
+        failure.diagnostics = {"phase": "arrival"}
+        self.layout.configure_error = failure
+        with patch("virtumon.managed.write_json", side_effect=OSError("diagnostic disk full")):
+            with self.assertRaisesRegex(OperationError, "original metadata mismatch.*No new virtumon was retained.*could not be saved.*disk full"):
+                self.manager.create(request())
+        self.assertEqual(self.driver.remove_calls, [self.driver.add_calls[0][0]])
+        self.assertEqual(self.store.load(), [])
+        self.assertEqual(self.driver.native, {})
+        self.assert_unrelated_unchanged()
+
+    def test_failed_cleanup_retains_ownership_and_saved_native_diagnostic(self):
+        from virtumon.windows_layout import WindowsLayoutError
+        failure = WindowsLayoutError("original metadata mismatch")
+        failure.diagnostics = {"phase": "arrival"}
+        self.layout.configure_error = failure
+        self.driver.remove_error = RuntimeError("native removal failed")
+        with self.assertRaisesRegex(OperationError, "original metadata mismatch.*cleanup failed.*Diagnostic report:"):
+            self.manager.create(request())
+        retained = self.store.load()
+        self.assertEqual(len(retained), 1)
+        self.assertIn("native removal failed", retained[0]["error"])
+        self.assertTrue((self.store.directory / "diagnostics" / f"create-{retained[0]['id']}.json").is_file())
+        self.assertIn(retained[0]["id"], self.driver.native)
         self.assert_unrelated_unchanged()
 
     def test_identity_save_failure_rolls_back_exact_created_guid(self):

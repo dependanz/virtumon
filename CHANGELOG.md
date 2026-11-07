@@ -15,6 +15,9 @@
   retry inconsistent hotplug metadata within the existing operation deadline.
 - Acceptance cleanup recognizes creation that already rolled back, retains the
   original failure, and checks for unexpected remaining Windows displays.
+- Save the exact CCD/GDI observations from a metadata timeout before creation
+  cleanup, including source-match counts, raw flags, identities, and operation
+  phase. Diagnostic failures cannot replace the original error or skip cleanup.
 
 This preview requires a separately installed SudoVDA driver. Native creation and
 remote-desktop behavior still require verification on a Windows machine with that

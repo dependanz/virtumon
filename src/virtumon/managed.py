@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 import re
 import threading
 import time
 from types import SimpleNamespace
 import uuid
 
-from .state import StateStore
+from . import __version__
+from .state import StateStore, write_json
 
 
 class OperationError(RuntimeError):
@@ -173,6 +175,7 @@ class MonitorManager:
             self.store.save(records)  # Journal ownership BEFORE the first native mutation.
             identity = None
             attempted = False
+            phase = "driver-add"
             try:
                 with self.driver_factory() as driver:
                     record["driver_path"] = driver.device_path
@@ -184,9 +187,11 @@ class MonitorManager:
                 self.store.save(records)
                 if not self._current(record):
                     raise OperationError("The driver heartbeat was interrupted before display configuration.")
+                phase = "configure"
                 display = self.layout.configure_display(identity, record["width"], record["height"],
                                                         record["refresh_hz"], *position,
                                                         guard=lambda: self._current(record))
+                phase = "verify-created-display"
                 after = self.layout.list_native_displays()
                 by_key = {display_key(item): item for item in after}
                 if any(display_key(item) not in by_key or geometry(item) != geometry(by_key[display_key(item)])
@@ -208,6 +213,7 @@ class MonitorManager:
                 self.store.save(records)
                 return self._row(record, after)
             except Exception as exc:
+                diagnostic_note = self._save_creation_diagnostic(exc, record, request, before, position, phase)
                 cleanup_error = None
                 if attempted:
                     try:
@@ -221,9 +227,32 @@ class MonitorManager:
                 if cleanup_error:
                     record["error"] = f"Creation failed: {exc}; cleanup failed: {cleanup_error}"
                     self.store.save(records)
-                    raise OperationError(record["error"] + f". Retry: virtumon remove {record['name']}") from exc
+                    raise OperationError(record["error"] + f". Retry: virtumon remove {record['name']}" + diagnostic_note) from exc
                 self.store.save([item for item in records if item["id"] != record["id"]])
-                raise OperationError(f"Could not create '{record['name']}': {exc}. No new virtumon was retained.") from exc
+                raise OperationError(f"Could not create '{record['name']}': {exc}. No new virtumon was retained."
+                                     + diagnostic_note) from exc
+
+    def _save_creation_diagnostic(self, error, record, request, before, position, phase) -> str:
+        report = getattr(error, "diagnostics", None)
+        if not isinstance(report, dict):
+            return ""
+        try:
+            path = self.store.directory / "diagnostics" / f"create-{record['id']}.json"
+            fields = ("device", "x", "y", "width", "height", "refresh_hz", "primary",
+                      "adapter_low", "adapter_high", "target_id")
+            write_json(path, {
+                "schema": "virtumon.create-diagnostic/v1", "version": __version__,
+                "recorded_at_utc": datetime.now(timezone.utc).isoformat(),
+                "error": str(error), "operation_phase": phase,
+                "request": request, "requested_position": list(position),
+                "monitor_id": record["id"], "driver_identity": record.get("identity"),
+                "before_creation": [{field: getattr(display, field) for field in fields} for display in before],
+                "native_metadata": report,
+                "note": "Recorded before exact-GUID cleanup; this file does not establish cleanup success.",
+            })
+            return f" Diagnostic report: {path}"
+        except Exception as diagnostic_exc:
+            return f" Diagnostic report could not be saved: {diagnostic_exc}"
 
     @staticmethod
     def _check_driver_path(record: dict, driver) -> None:

@@ -30,6 +30,7 @@ class WindowsLayoutError(DisplayDiscoveryError):
     """A display could not be safely identified, changed, or verified."""
 
     winerror: int | None = None
+    diagnostics: dict | None = None
 
 
 class _UnsafeTarget(WindowsLayoutError):
@@ -42,6 +43,8 @@ class _OwnershipUnverified(WindowsLayoutError):
 
 class _PendingTopology(WindowsLayoutError):
     """CCD and GDI metadata do not yet describe one consistent desktop."""
+
+    observation: tuple | None = None
 
 
 def _check_guard(guard: Callable[[], bool] | None) -> None:
@@ -369,10 +372,18 @@ def _records(api, snapshot: _Snapshot) -> list[_Record]:
     records, names = [], {}
     active_paths = [path for path in snapshot.paths if path.flags & ACTIVE]
     device_sources = api.device_sources()
+
+    def pending(message, problem_device=None):
+        error = _PendingTopology(message)
+        # Retain the same observations that rejected the layout. Serialization
+        # and supplemental reads happen only once, if the retries time out.
+        error.observation = (snapshot, device_sources, dict(names), problem_device)
+        return error
+
     if not active_paths:
         if any(source.flags & DISPLAY_DEVICE_ATTACHED_TO_DESKTOP and not source.flags & 8
                for source in device_sources):
-            raise _PendingTopology("CCD reports no active paths while GDI still reports an attached display.")
+            raise pending("CCD reports no active paths while GDI still reports an attached display.")
         return records
     sources = {}
     for source in device_sources:
@@ -388,8 +399,11 @@ def _records(api, snapshot: _Snapshot) -> list[_Record]:
             raise WindowsLayoutError("Windows returned an empty GDI display name.")
         matches = sources.get(names[source_key].casefold(), [])
         if len(matches) != 1 or not matches[0].flags & DISPLAY_DEVICE_ATTACHED_TO_DESKTOP:
-            raise _PendingTopology(
-                f"Windows has not reported one attached GDI source for {names[source_key]}."
+            flags = ", ".join(hex(match.flags) for match in matches) or "none"
+            raise pending(
+                f"Windows has not reported one attached GDI source for {names[source_key]} "
+                f"(matches={len(matches)}; flags={flags}).",
+                names[source_key],
             )
         # A hotplug CCD source position alone is not sufficient evidence of
         # primary status. Use Windows' explicit GDI flag for the matched source;
@@ -407,7 +421,7 @@ def _records(api, snapshot: _Snapshot) -> list[_Record]:
         records.append(_Record(display, path))
     primary_sources = {record.display.device.casefold() for record in records if record.display.primary}
     if len(primary_sources) != 1:
-        raise _PendingTopology(
+        raise pending(
             f"Windows reported {len(primary_sources)} primary GDI sources for the active desktop; expected one."
         )
     return records
@@ -475,7 +489,7 @@ def _pause(deadline):
     return True
 
 
-def _active_records(api, deadline, guard=None):
+def _active_records(api, deadline, guard=None, *, phase="discovery"):
     while True:
         _check_guard(guard)
         try:
@@ -485,9 +499,27 @@ def _active_records(api, deadline, guard=None):
         except _PendingTopology as exc:
             _check_guard(guard)
             if not _pause(deadline):
-                raise WindowsLayoutError(
+                error = WindowsLayoutError(
                     f"Timed out waiting for consistent Windows display metadata. Latest error: {exc}"
-                ) from exc
+                )
+                if exc.observation is not None:
+                    try:
+                        from .windows_diagnostics import capture_metadata, enrich_metadata
+                        snapshot, sources, names, problem_device = exc.observation
+                        report = capture_metadata(snapshot, sources, names, reason=str(exc),
+                                                  problem_device=problem_device)
+                        report["phase"] = phase
+                        error.diagnostics = report
+                        try:
+                            error.diagnostics = enrich_metadata(report, api)
+                        except Exception as enrichment_exc:
+                            report["enrichment_error"] = str(enrichment_exc)
+                    except Exception as diagnostic_exc:
+                        # Diagnostics must never replace the original failure or
+                        # interfere with the manager's exact-GUID cleanup.
+                        error.diagnostics = {"phase": phase, "reason": str(exc),
+                                             "capture_error": str(diagnostic_exc)}
+                raise error from exc
             continue
         _check_guard(guard)
         return records
@@ -495,7 +527,7 @@ def _active_records(api, deadline, guard=None):
 
 def _wait(api, key, deadline, guard=None):
     while True:
-        records = _active_records(api, deadline, guard)
+        records = _active_records(api, deadline, guard, phase="arrival")
         target = _active_target(records, key)
         if target is not None:
             return target.display
@@ -519,7 +551,7 @@ def list_native_displays() -> list[NativeDisplay]:
     """
     api = _get_api()
     # Leave headroom within the managed-list client's ten-second RPC timeout.
-    return sorted((r.display for r in _active_records(api, _deadline(5))),
+    return sorted((r.display for r in _active_records(api, _deadline(5), phase="list-active")),
                   key=lambda d: (not d.primary, d.x, d.y, d.device, d.target_id))
 
 
@@ -708,7 +740,7 @@ def configure_display(identity: DisplayIdentity, width: int, height: int, refres
             # Arrival can precede GDI source association. Re-read both active
             # topology and inactive candidates instead of reusing stale paths.
             _check_guard(guard)
-            before = _active_records(api, deadline, guard)
+            before = _active_records(api, deadline, guard, phase="prepare")
             _check_guard(guard)
             target = _active_target(before, key)
             if target is not None:
@@ -742,7 +774,7 @@ def configure_display(identity: DisplayIdentity, width: int, height: int, refres
         _check_guard(guard)
         if result:
             raise _change_error(result)
-        fresh = _active_records(api, deadline, guard)
+        fresh = _active_records(api, deadline, guard, phase="after-mode-test")
         _check_guard(guard)
         if not _same_records(before, fresh):
             raise WindowsLayoutError("The desktop changed while preparing the mode; retry the operation.")
@@ -758,7 +790,7 @@ def configure_display(identity: DisplayIdentity, width: int, height: int, refres
                 raise _change_error(result)
             while True:
                 _check_guard(guard)
-                after = _active_records(api, deadline, guard)
+                after = _active_records(api, deadline, guard, phase="after-mode-apply")
                 _check_guard(guard)
                 if not _same_records(_others(before, key), _others(after, key)):
                     raise WindowsLayoutError("Windows changed another display while applying the requested layout.")
@@ -775,4 +807,6 @@ def configure_display(identity: DisplayIdentity, width: int, height: int, refres
             # generation. The manager can clean up by authoritative GUID.
             raise
         except WindowsLayoutError as exc:
-            raise WindowsLayoutError(f"{exc} {_rollback(api, before, target, previous, guard)}") from exc
+            error = WindowsLayoutError(f"{exc} {_rollback(api, before, target, previous, guard)}")
+            error.diagnostics = exc.diagnostics
+            raise error from exc

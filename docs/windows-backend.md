@@ -331,6 +331,35 @@ If stopping reports that managed monitors remain, inspect them and remove the
 specific names you intend to close before updating. The next creation starts
 the updated agent automatically.
 
+### Diagnose a CCD/GDI metadata mismatch
+
+If creation reports a timeout waiting for consistent Windows display metadata,
+the error now distinguishes a missing GDI source, duplicate source matches,
+and a matching source whose attached flag is clear. The timeout captures the
+exact CCD snapshot and GDI enumeration that failed, followed by bounded,
+best-effort read-only observations from the other Windows display APIs.
+
+When this happens during creation, Virtumon saves a report before removing its
+new monitor by UUID. The error prints its path:
+
+```text
+Diagnostic report: ...\Virtumon\diagnostics\create-<UUID>.json
+```
+
+The default directory is `%LOCALAPPDATA%\Virtumon\diagnostics`; a configured
+`VIRTUMON_STATE_DIR` places the reports under that directory instead. The report
+contains the requested position, baseline geometry, driver-returned identity,
+operation phase, and display configuration metadata. The exact failed sample
+and later supplemental reads are labeled separately because they are not an
+atomic Windows snapshot. Supplemental reads have a bounded call count and a
+time budget checked between calls; a synchronous Windows API call itself cannot
+be interrupted by that budget.
+
+Share the JSON report with the acceptance-script output. The report does not
+establish cleanup success; that remains the acceptance script's final check.
+If collecting or saving a report fails, the original creation error and normal
+exact-GUID cleanup still take priority.
+
 ## Pinned backend references
 
 | Component | Reviewed reference |
