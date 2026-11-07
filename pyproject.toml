@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "virtumon"
-version = "0.1.0"
-description = "Your desktop, expanded. Virtual monitor tools with Windows display discovery."
+version = "0.2.0a1"
+description = "Your desktop, expanded. Named Windows virtual monitors with SudoVDA."
 readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"

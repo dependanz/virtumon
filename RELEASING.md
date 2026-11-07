@@ -1,5 +1,19 @@
 # Releasing Virtumon
 
+## Windows management preview
+
+Version **0.2.0a1** on `feature/windows-virtual-monitors` is a candidate for
+hardware testing. Build and test the wheel, then retain the output of
+`tools/verify_windows.ps1 -Exercise` from a Windows desktop with the reviewed
+SudoVDA driver. Check the intended remote-desktop client in that same session.
+Unit tests and read-only Windows CI probes do not establish that native monitor
+creation works on the target machine.
+
+Feature-branch and pull-request workflows build distributions and run tests;
+they do not publish. Manual publication through the workflow is limited to
+`main`; version tags still publish after the build/test jobs pass. Do not create
+a release tag for an unvalidated candidate.
+
 ## PyPI Trusted Publishing
 
 For the first publication, configure a **pending publisher** at
