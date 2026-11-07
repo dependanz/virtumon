@@ -1,0 +1,43 @@
+[build-system]
+requires = ["setuptools>=77.0.3"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "virtumon"
+version = "0.1.0"
+description = "Your desktop, expanded. Virtual monitor tools with Windows display discovery."
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{name = "Danzel Serrano"}]
+keywords = ["monitor", "display", "virtual-monitor", "desktop", "cli", "windows"]
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Environment :: Console",
+    "Intended Audience :: End Users/Desktop",
+    "Operating System :: Microsoft :: Windows",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Desktop Environment",
+    "Topic :: Utilities",
+]
+dependencies = []
+
+[project.scripts]
+virtumon = "virtumon.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/dependanz/virtumon"
+Repository = "https://github.com/dependanz/virtumon"
+Issues = "https://github.com/dependanz/virtumon/issues"
+Changelog = "https://github.com/dependanz/virtumon/blob/main/CHANGELOG.md"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
