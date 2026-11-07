@@ -10,6 +10,7 @@ import json
 import os
 from pathlib import Path
 import secrets
+from socketserver import TCPServer
 import threading
 import time
 import uuid
@@ -128,6 +129,13 @@ class AgentService:
 
 
 def create_server(service: AgentService, token: str) -> ThreadingHTTPServer:
+    class LoopbackServer(ThreadingHTTPServer):
+        def server_bind(self):
+            # HTTPServer normally reverse-resolves its numeric listen address.
+            # Local authenticated IPC needs no hostname or network DNS lookup.
+            TCPServer.server_bind(self)
+            self.server_name, self.server_port = self.server_address[:2]
+
     class Handler(BaseHTTPRequestHandler):
         server_version = "Virtumon"
 
@@ -177,7 +185,7 @@ def create_server(service: AgentService, token: str) -> ThreadingHTTPServer:
                 if request.get("operation") == "stop":
                     threading.Thread(target=self.server.shutdown, daemon=True).start()
 
-    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    server = LoopbackServer(("127.0.0.1", 0), Handler)
     server.daemon_threads = True
     service.server = server
     return server

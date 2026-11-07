@@ -1,6 +1,7 @@
 """ABI and guarded-layout tests; these do not claim a real Windows hardware test."""
 
 import ctypes as C
+import json
 import sys
 import unittest
 from dataclasses import dataclass
@@ -506,11 +507,88 @@ class LayoutTests(unittest.TestCase):
         self.assertEqual([flags for _, _, flags in self.api.calls], [W.CDS_TEST, 0])
 
 
+def _snapshot_diagnostics(snapshot):
+    if snapshot is None:
+        return None
+    paths = []
+    for path in snapshot.paths[:32]:
+        source, target = path.sourceInfo, path.targetInfo
+        paths.append({
+            "flags": hex(path.flags),
+            "source": {"luid": [source.adapterId.LowPart, source.adapterId.HighPart], "id": source.id,
+                       "mode_raw": hex(source.modeInfoIdx), "mode_legacy": source.modeInfoIdx,
+                       "mode_virtual": source.modeInfoIdx >> 16, "clone_group": source.modeInfoIdx & 0xFFFF,
+                       "status": source.statusFlags},
+            "target": {"luid": [target.adapterId.LowPart, target.adapterId.HighPart], "id": target.id,
+                       "mode_raw": hex(target.modeInfoIdx), "mode_virtual": target.modeInfoIdx >> 16,
+                       "desktop_index": target.modeInfoIdx & 0xFFFF, "available": target.targetAvailable,
+                       "refresh": [target.refreshRate.Numerator, target.refreshRate.Denominator]},
+        })
+    modes = []
+    for index, mode_info in enumerate(snapshot.modes[:64]):
+        entry = {"index": index, "type": mode_info.infoType, "id": mode_info.id,
+                 "luid": [mode_info.adapterId.LowPart, mode_info.adapterId.HighPart]}
+        if mode_info.infoType == 1:
+            source = mode_info.sourceMode
+            entry.update(width=source.width, height=source.height, pixel_format=source.pixelFormat,
+                         position=[source.position.x, source.position.y])
+        elif mode_info.infoType == 2:
+            signal = mode_info.targetMode
+            entry.update(active_size=[signal.activeSize.cx, signal.activeSize.cy],
+                         refresh=[signal.vSyncFreq.Numerator, signal.vSyncFreq.Denominator])
+        elif mode_info.infoType == 3:
+            desktop = mode_info.desktopImageInfo
+            entry.update(source_size=[desktop.PathSourceSize.x, desktop.PathSourceSize.y],
+                         region=[desktop.DesktopImageRegion.left, desktop.DesktopImageRegion.top,
+                                 desktop.DesktopImageRegion.right, desktop.DesktopImageRegion.bottom])
+        else:
+            entry["raw"] = bytes(mode_info).hex()
+        modes.append(entry)
+    return {"path_count": len(snapshot.paths), "mode_count": len(snapshot.modes), "paths": paths, "modes": modes}
+
+
+def _native_diagnostics(api, current):
+    structures = (W._LUID, W._SOURCE_MODE, W._SIGNAL, W._MODE_INFO, W._PATH_SOURCE, W._PATH_TARGET, W._PATH_INFO)
+    result = {"pointer_size": C.sizeof(C.c_void_p), "python": sys.version.split()[0],
+              "abi": {s.__name__: {"size": C.sizeof(s), "alignment": C.alignment(s)} for s in structures},
+              "offsets": {"mode_union": W._MODE_INFO.mode.offset, "source_position": W._SOURCE_MODE.position.offset,
+                          "path_target": W._PATH_INFO.targetInfo.offset, "path_flags": W._PATH_INFO.flags.offset},
+              "virtual_aware": _snapshot_diagnostics(current), "gdi": []}
+    # Compare the unmodified legacy query and GDI independently of our decoder.
+    # Both calls are read-only and only run after the native probe has failed.
+    try:
+        result["legacy"] = _snapshot_diagnostics(api.snapshot(virtual_mode_aware=False))
+    except Exception as exc:
+        result["legacy_error"] = str(exc)
+    for path in current.paths[:8] if current is not None else []:
+        try:
+            device = api.source_name(path)
+            native_mode = api.current_mode(device)
+            result["gdi"].append({"device": device, "mode": None if native_mode is None else {
+                "fields": hex(native_mode.dmFields), "width": native_mode.dmPelsWidth, "height": native_mode.dmPelsHeight,
+                "position": [native_mode.dmPosition.x, native_mode.dmPosition.y], "refresh": native_mode.dmDisplayFrequency}})
+        except Exception as exc:
+            result["gdi"].append({"error": str(exc)})
+    return result
+
+
+class NativeDiagnosticTests(unittest.TestCase):
+    def test_diagnostics_expose_both_index_interpretations_and_mode_identity(self):
+        current = snapshot([screen(200, -3, 7, 1, "VIRTUAL", width=1280, height=720)])
+        report = _snapshot_diagnostics(current)
+        source = report["paths"][0]["source"]
+        self.assertEqual((source["mode_raw"], source["mode_legacy"], source["mode_virtual"]), ("0xffff", 65535, 0))
+        self.assertEqual(report["modes"][0], {"index": 0, "type": 1, "id": 1, "luid": [200, -3],
+                                             "width": 1280, "height": 720, "pixel_format": 4, "position": [0, 0]})
+        json.dumps(report)
+
+
 @unittest.skipUnless(sys.platform == "win32", "Read-only native Windows API probe")
 class NativeWindowsProbeTests(unittest.TestCase):
     def test_real_user32_discovery_without_virtual_driver(self):
         """Exercise actual User32 structures/prototypes; never change a mode."""
         api = W._Win32()
+        current = None
         try:
             current = api.snapshot()
             records = W._records(api, current)
@@ -518,7 +596,7 @@ class NativeWindowsProbeTests(unittest.TestCase):
         except W.WindowsLayoutError as exc:
             if exc.winerror in (5, 50):
                 self.skipTest(f"Runner has no accessible console display session/WDDM: {exc}")
-            raise
+            self.fail(f"{exc}\nCCD_DIAGNOSTICS={json.dumps(_native_diagnostics(api, current), sort_keys=True)}")
         self.assertEqual(len(records), sum(bool(p.flags & W.ACTIVE) for p in current.paths))
         for record in records:
             self.assertTrue(record.display.device)

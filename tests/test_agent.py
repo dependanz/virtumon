@@ -41,6 +41,7 @@ class AgentTests(unittest.TestCase):
         self.directory = Path(temporary.name)
         self.store = StateStore(self.directory)
         self.health = Health()
+        self.health.set_timeout(0)  # IPC tests have no keeper; timing has separate coverage.
         self.health.succeed()
         self.driver_calls = []
 
@@ -98,6 +99,15 @@ class AgentTests(unittest.TestCase):
         self.assertEqual(status["heartbeat"], "ok")
         self.assertEqual(self.client.list_managed(), [])
         self.assertEqual(self.driver_calls, [])
+
+    def test_loopback_binding_never_reverse_resolves_the_address(self):
+        with patch("socket.getfqdn", side_effect=AssertionError("Unexpected resolver lookup")):
+            server = create_server(AgentService(self.manager, self.health), self.token)
+        try:
+            self.assertEqual(server.server_name, "127.0.0.1")
+            self.assertEqual(server.server_port, server.server_address[1])
+        finally:
+            server.server_close()
 
     def test_stop_refuses_while_monitor_ownership_exists(self):
         self.store.save([record()])

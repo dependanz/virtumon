@@ -247,8 +247,10 @@ class _Win32:
             function = getattr(dll, name)
             function.restype, function.argtypes = result, arguments
 
-    def snapshot(self, active_only: bool = True) -> _Snapshot:
-        flags = (QDC_ONLY_ACTIVE_PATHS if active_only else QDC_ALL_PATHS) | QDC_VIRTUAL_MODE_AWARE
+    def snapshot(self, active_only: bool = True, *, virtual_mode_aware: bool = True) -> _Snapshot:
+        flags = QDC_ONLY_ACTIVE_PATHS if active_only else QDC_ALL_PATHS
+        if virtual_mode_aware:
+            flags |= QDC_VIRTUAL_MODE_AWARE
         for _ in range(8):
             count_paths, count_modes = U32(), U32()
             result = self.dll.GetDisplayConfigBufferSizes(flags, C.byref(count_paths), C.byref(count_modes))
