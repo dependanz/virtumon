@@ -173,6 +173,7 @@ class _DEVMODE(C.Structure):
 class _Snapshot:
     paths: list[_PATH_INFO]
     modes: list[_MODE_INFO]
+    virtual_mode_aware: bool = True
 
 
 @dataclass
@@ -265,7 +266,8 @@ class _Win32:
             if result:
                 raise _win_error("QueryDisplayConfig", result)
             return _Snapshot([_copy(p) for p in paths[:count_paths.value]],
-                             [_copy(m) for m in modes[:count_modes.value]])
+                             [_copy(m) for m in modes[:count_modes.value]],
+                             virtual_mode_aware=virtual_mode_aware)
         raise WindowsLayoutError("Display topology kept changing during discovery; retry once it settles.")
 
     def _name(self, path, target=False):
@@ -332,7 +334,10 @@ def _get_api():
 def _mode(snapshot, path, source: bool):
     info = path.sourceInfo if source else path.targetInfo
     index = info.modeInfoIdx
-    if path.flags & VIRTUAL_MODE:
+    # QDC_VIRTUAL_MODE_AWARE determines the returned union layout. Windows can
+    # return packed indexes even when PATH_SUPPORT_VIRTUAL_MODE is absent on an
+    # active path (observed on the native Windows CI display).
+    if snapshot.virtual_mode_aware:
         index >>= 16
         if index == 0xFFFF:
             return None
@@ -343,6 +348,16 @@ def _mode(snapshot, path, source: bool):
             bytes(mode.adapterId) != bytes(info.adapterId)):
         return None
     return mode
+
+
+def _refresh_rate(rate: _RATIONAL) -> float | None:
+    numerator, denominator = rate.Numerator, rate.Denominator
+    # Some display drivers report unavailable signal timing as unsigned -2/-2
+    # (or -1). Dividing that placeholder would falsely report a valid 1 Hz.
+    invalid = (0, 0xFFFFFFFE, 0xFFFFFFFF)
+    if numerator in invalid or denominator in invalid:
+        return None
+    return numerator / denominator
 
 
 def _records(api, snapshot: _Snapshot) -> list[_Record]:
@@ -360,10 +375,11 @@ def _records(api, snapshot: _Snapshot) -> list[_Record]:
             raise WindowsLayoutError("Windows returned an empty GDI display name.")
         mode = source.sourceMode
         target = _mode(snapshot, path, source=False)
-        rate = target.targetMode.vSyncFreq if target is not None else path.targetInfo.refreshRate
-        if not rate.Denominator or not rate.Numerator:
-            rate = path.targetInfo.refreshRate
-        refresh = rate.Numerator / rate.Denominator if rate.Denominator else 0.0
+        refresh = _refresh_rate(target.targetMode.vSyncFreq) if target is not None else None
+        if refresh is None:
+            refresh = _refresh_rate(path.targetInfo.refreshRate)
+        if refresh is None:
+            refresh = 0.0
         display = NativeDisplay(names[source_key], mode.position.x, mode.position.y,
                                 mode.width, mode.height, refresh,
                                 mode.position.x == 0 and mode.position.y == 0, *_path_key(path))

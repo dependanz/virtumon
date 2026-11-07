@@ -173,6 +173,10 @@ class ABITests(unittest.TestCase):
         self.assertIs(dll.ChangeDisplaySettingsExW.restype, C.c_int32)
         self.assertIs(dll.ChangeDisplaySettingsExW.argtypes[2], C.c_void_p)
         self.assertIs(dll.ChangeDisplaySettingsExW.argtypes[4], C.c_void_p)
+        self.assertTrue(result.virtual_mode_aware)
+        legacy = api.snapshot(virtual_mode_aware=False)
+        self.assertFalse(legacy.virtual_mode_aware)
+        self.assertEqual(seen[-1], W.QDC_ONLY_ACTIVE_PATHS)
 
 
 class LayoutTests(unittest.TestCase):
@@ -195,6 +199,42 @@ class LayoutTests(unittest.TestCase):
         self.assertEqual((target.device, target.adapter_high, target.width), ("VIRTUAL", -3, 800))
         self.assertEqual(W.wait_for_display(Identity(100, 1, 7), timeout=0).device, "PHYSICAL")
         self.assertFalse(W.is_display_present(Identity(200, 3, 7)))
+
+    def test_observed_windows_query_format_without_virtual_path_flag(self):
+        # Actual native CI values: SOURCE id 0 is mode 1, TARGET 5527112 is
+        # mode 0. The path's flags are only ACTIVE, even for the packed query.
+        self.api.screens = [screen(23539, 0, 5527112, 0, "DISPLAY1", width=1024, height=768, refresh=64)]
+        for aware in (True, False):
+            with self.subTest(virtual_mode_aware=aware):
+                current = self.api.snapshot()
+                current.virtual_mode_aware = aware
+                current.modes = [current.modes[1], current.modes[0]]
+                path = current.paths[0]
+                path.flags = W.ACTIVE
+                path.sourceInfo.modeInfoIdx = 0x1FFFF if aware else 1
+                path.targetInfo.modeInfoIdx = 0xFFFF if aware else 0
+                current.modes[0].targetMode.vSyncFreq = W._RATIONAL(0xFFFFFFFE, 0xFFFFFFFE)
+                path.targetInfo.refreshRate = W._RATIONAL(64, 1)
+                actual = W._records(self.api, current)[0].display
+                self.assertEqual((actual.width, actual.height, actual.x, actual.y, actual.primary),
+                                 (1024, 768, 0, 0, True))
+                self.assertEqual((actual.adapter_low, actual.adapter_high, actual.target_id, actual.refresh_hz),
+                                 (23539, 0, 5527112, 64))
+                # Query metadata must not weaken the mode identity checks.
+                current.modes[1].id = 999
+                with self.assertRaisesRegex(W.WindowsLayoutError, "valid CCD source geometry"):
+                    W._records(self.api, current)
+
+    def test_unavailable_signal_refresh_uses_path_or_reports_unknown(self):
+        current = self.api.snapshot()
+        target = current.modes[1].targetMode
+        for sentinel in (0xFFFFFFFE, 0xFFFFFFFF):
+            with self.subTest(sentinel=sentinel):
+                target.vSyncFreq = W._RATIONAL(sentinel, sentinel)
+                current.paths[0].targetInfo.refreshRate = W._RATIONAL(64, 1)
+                self.assertEqual(W._records(self.api, current)[0].display.refresh_hz, 64)
+                current.paths[0].targetInfo.refreshRate = W._RATIONAL(0, 0)
+                self.assertEqual(W._records(self.api, current)[0].display.refresh_hz, 0)
 
     def test_inactive_presence_is_reported_without_fabricating_geometry(self):
         self.api.screens[1]["active"] = False
@@ -544,7 +584,8 @@ def _snapshot_diagnostics(snapshot):
         else:
             entry["raw"] = bytes(mode_info).hex()
         modes.append(entry)
-    return {"path_count": len(snapshot.paths), "mode_count": len(snapshot.modes), "paths": paths, "modes": modes}
+    return {"virtual_mode_aware": snapshot.virtual_mode_aware, "path_count": len(snapshot.paths),
+            "mode_count": len(snapshot.modes), "paths": paths, "modes": modes}
 
 
 def _native_diagnostics(api, current):
