@@ -265,6 +265,17 @@ wheel is installed:
 .\tools\verify_windows.ps1 -Python .\.venv\Scripts\python.exe
 ```
 
+With Conda or several Python installations, use the active interpreter's exact
+path to keep the package and verification environment aligned:
+
+```powershell
+$virtumonPython = python -c "import sys; print(sys.executable)"
+.\tools\verify_windows.ps1 -Python $virtumonPython
+```
+
+The default `-Python python` chooses the first matching application. It never
+joins the paths of multiple Python installations into one executable name.
+
 The default run calls version, doctor, and ordinary/managed JSON listing. It
 does not create or remove a monitor, install a driver, import a certificate,
 change registry settings, or stop an agent.

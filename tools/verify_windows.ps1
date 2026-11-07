@@ -166,8 +166,14 @@ function Assert-ExistingMonitorsPreserved {
 
 try {
     Assert-Check ([Environment]::OSVersion.Platform -eq [PlatformID]::Win32NT) 'Run this acceptance script on Windows.'
-    $pythonCommand = Get-Command -Name $Python -CommandType Application -ErrorAction Stop
-    $script:PythonExecutable = $pythonCommand.Source
+    # Application discovery can return several Python installations. Resolve a
+    # single command before reading its path; an array becomes one invalid
+    # space-joined ProcessStartInfo.FileName. Respect the first PATH match.
+    $pythonCommand = Get-Command -Name $Python -CommandType Application -ErrorAction Stop |
+        Select-Object -First 1
+    $script:PythonExecutable = [string]$pythonCommand.Path
+    Assert-Check (-not [string]::IsNullOrWhiteSpace($script:PythonExecutable)) 'Python did not resolve to an executable path.'
+    Assert-Check ([IO.File]::Exists($script:PythonExecutable)) "Python executable does not exist: $script:PythonExecutable"
     Write-Host "Interpreter: $script:PythonExecutable"
     Show-Result (Invoke-Virtumon -Arguments @('--version'))
     Show-Result (Invoke-Virtumon -Arguments @('doctor'))

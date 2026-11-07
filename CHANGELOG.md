@@ -9,6 +9,8 @@
 - Durable ownership journal, exact-GUID cleanup, and verification through Windows display APIs.
 - `agent status`, `agent stop`, and driver readiness in `doctor`.
 - Driver installation notes and an opt-in native Windows acceptance script.
+- Windows acceptance checks select one Python executable when several are installed;
+  runtime regressions cover both Windows PowerShell and PowerShell when available.
 
 This preview requires a separately installed SudoVDA driver. Native creation and
 remote-desktop behavior still require verification on a Windows machine with that
