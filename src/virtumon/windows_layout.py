@@ -19,6 +19,7 @@ from .displays import DisplayDiscoveryError
 
 U16, U32, I16, I32, U64 = C.c_uint16, C.c_uint32, C.c_int16, C.c_int32, C.c_uint64
 ACTIVE, VIRTUAL_MODE = 1, 8
+DISPLAY_DEVICE_ATTACHED_TO_DESKTOP, DISPLAY_DEVICE_PRIMARY_DEVICE = 1, 4
 QDC_ALL_PATHS, QDC_ONLY_ACTIVE_PATHS, QDC_VIRTUAL_MODE_AWARE = 1, 2, 0x10
 DM_POSITION, DM_PELSWIDTH, DM_PELSHEIGHT, DM_DISPLAYFREQUENCY = 0x20, 0x80000, 0x100000, 0x400000
 CDS_TEST = 2
@@ -37,6 +38,10 @@ class _UnsafeTarget(WindowsLayoutError):
 
 class _OwnershipUnverified(WindowsLayoutError):
     pass
+
+
+class _PendingTopology(WindowsLayoutError):
+    """CCD and GDI metadata do not yet describe one consistent desktop."""
 
 
 def _check_guard(guard: Callable[[], bool] | None) -> None:
@@ -362,9 +367,17 @@ def _refresh_rate(rate: _RATIONAL) -> float | None:
 
 def _records(api, snapshot: _Snapshot) -> list[_Record]:
     records, names = [], {}
-    for path in snapshot.paths:
-        if not path.flags & ACTIVE:
-            continue
+    active_paths = [path for path in snapshot.paths if path.flags & ACTIVE]
+    device_sources = api.device_sources()
+    if not active_paths:
+        if any(source.flags & DISPLAY_DEVICE_ATTACHED_TO_DESKTOP and not source.flags & 8
+               for source in device_sources):
+            raise _PendingTopology("CCD reports no active paths while GDI still reports an attached display.")
+        return records
+    sources = {}
+    for source in device_sources:
+        sources.setdefault(source.device.casefold(), []).append(source)
+    for path in active_paths:
         source = _mode(snapshot, path, source=True)
         if source is None or not source.sourceMode.width or not source.sourceMode.height:
             raise WindowsLayoutError("An active display has no valid CCD source geometry; no changes were made.")
@@ -373,6 +386,15 @@ def _records(api, snapshot: _Snapshot) -> list[_Record]:
             names[source_key] = api.source_name(path)
         if not names[source_key]:
             raise WindowsLayoutError("Windows returned an empty GDI display name.")
+        matches = sources.get(names[source_key].casefold(), [])
+        if len(matches) != 1 or not matches[0].flags & DISPLAY_DEVICE_ATTACHED_TO_DESKTOP:
+            raise _PendingTopology(
+                f"Windows has not reported one attached GDI source for {names[source_key]}."
+            )
+        # A hotplug CCD source position alone is not sufficient evidence of
+        # primary status. Use Windows' explicit GDI flag for the matched source;
+        # never guess from (0, 0) when deciding whether a move is safe.
+        primary = bool(matches[0].flags & DISPLAY_DEVICE_PRIMARY_DEVICE)
         mode = source.sourceMode
         target = _mode(snapshot, path, source=False)
         refresh = _refresh_rate(target.targetMode.vSyncFreq) if target is not None else None
@@ -381,9 +403,13 @@ def _records(api, snapshot: _Snapshot) -> list[_Record]:
         if refresh is None:
             refresh = 0.0
         display = NativeDisplay(names[source_key], mode.position.x, mode.position.y,
-                                mode.width, mode.height, refresh,
-                                mode.position.x == 0 and mode.position.y == 0, *_path_key(path))
+                                mode.width, mode.height, refresh, primary, *_path_key(path))
         records.append(_Record(display, path))
+    primary_sources = {record.display.device.casefold() for record in records if record.display.primary}
+    if len(primary_sources) != 1:
+        raise _PendingTopology(
+            f"Windows reported {len(primary_sources)} primary GDI sources for the active desktop; expected one."
+        )
     return records
 
 
@@ -449,11 +475,27 @@ def _pause(deadline):
     return True
 
 
-def _wait(api, key, deadline, guard=None):
+def _active_records(api, deadline, guard=None):
     while True:
         _check_guard(guard)
-        records = _records(api, api.snapshot())
+        try:
+            # Re-read both APIs after a transient mismatch. Retrying GDI against
+            # an old CCD snapshot could otherwise accept stale source metadata.
+            records = _records(api, api.snapshot())
+        except _PendingTopology as exc:
+            _check_guard(guard)
+            if not _pause(deadline):
+                raise WindowsLayoutError(
+                    f"Timed out waiting for consistent Windows display metadata. Latest error: {exc}"
+                ) from exc
+            continue
         _check_guard(guard)
+        return records
+
+
+def _wait(api, key, deadline, guard=None):
+    while True:
+        records = _active_records(api, deadline, guard)
         target = _active_target(records, key)
         if target is not None:
             return target.display
@@ -476,7 +518,8 @@ def list_native_displays() -> list[NativeDisplay]:
     Cloned targets are listed individually; they cannot be configured here.
     """
     api = _get_api()
-    return sorted((r.display for r in _records(api, api.snapshot())),
+    # Leave headroom within the managed-list client's ten-second RPC timeout.
+    return sorted((r.display for r in _active_records(api, _deadline(5))),
                   key=lambda d: (not d.primary, d.x, d.y, d.device, d.target_id))
 
 
@@ -528,7 +571,13 @@ def _geometry(target, records, width, height, x, y):
     others = _others(records, _key(target.display))
     expected_primary = target.display.primary if target.display.active else not others
     if ((x, y) == (0, 0)) != expected_primary:
-        raise WindowsLayoutError("That position would change the primary display; choose an extended position.")
+        raise WindowsLayoutError(
+            "That position would change the primary display "
+            f"(target={target.display.device}; active={target.display.active}; "
+            f"Windows primary={target.display.primary}; "
+            f"current=({target.display.x}, {target.display.y}); requested=({x}, {y})). "
+            "Choose an extended position."
+        )
     rectangles = {(r.display.x, r.display.y, r.display.x + r.display.width,
                    r.display.y + r.display.height) for r in others}
     rectangles = [(x, y, x + width, y + height), *rectangles]
@@ -659,7 +708,7 @@ def configure_display(identity: DisplayIdentity, width: int, height: int, refres
             # Arrival can precede GDI source association. Re-read both active
             # topology and inactive candidates instead of reusing stale paths.
             _check_guard(guard)
-            before = _records(api, api.snapshot())
+            before = _active_records(api, deadline, guard)
             _check_guard(guard)
             target = _active_target(before, key)
             if target is not None:
@@ -693,7 +742,7 @@ def configure_display(identity: DisplayIdentity, width: int, height: int, refres
         _check_guard(guard)
         if result:
             raise _change_error(result)
-        fresh = _records(api, api.snapshot())
+        fresh = _active_records(api, deadline, guard)
         _check_guard(guard)
         if not _same_records(before, fresh):
             raise WindowsLayoutError("The desktop changed while preparing the mode; retry the operation.")
@@ -709,7 +758,7 @@ def configure_display(identity: DisplayIdentity, width: int, height: int, refres
                 raise _change_error(result)
             while True:
                 _check_guard(guard)
-                after = _records(api, api.snapshot())
+                after = _active_records(api, deadline, guard)
                 _check_guard(guard)
                 if not _same_records(_others(before, key), _others(after, key)):
                     raise WindowsLayoutError("Windows changed another display while applying the requested layout.")

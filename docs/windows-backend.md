@@ -146,6 +146,14 @@ and `--below`; inspect `virtumon create --help` for accepted anchor names.
 The candidate configures SDR monitors. HDR and capture performance are outside
 this initial acceptance test.
 
+Primary status comes from the matched GDI source's
+[`DISPLAY_DEVICE_PRIMARY_DEVICE` flag](https://learn.microsoft.com/en-us/windows/win32/api/wingdi/ns-wingdi-display_devicew).
+CCD source coordinates alone do not authorize a primary-display change. If CCD
+and GDI metadata disagree while a monitor arrives, discovery retries within a
+bounded deadline. Missing or ambiguous primary information blocks layout writes.
+The primary-position error includes the target device and current/requested
+coordinates so an unsuccessful hardware run can be diagnosed without guessing.
+
 `remove NAME...` accepts one or more managed names. `remove --all` applies to
 Virtumon's managed records. It does not mean "remove every display on the
 computer". Use explicit names during initial testing.
@@ -291,7 +299,11 @@ The exercise creates a unique `virtumon-check-...` monitor at 1280 x 720 and
 name, UUID, device, and geometry to the Windows display list. It records the
 pre-existing displays and managed IDs so it can check that they remain present.
 Its `finally` block attempts to remove only the generated name, including after
-a partial creation failure. It never issues `remove --all` or `agent stop`.
+a partial creation failure. If creation already rolled back and the name is
+absent, it proceeds directly to verification. Cleanup also checks that no extra
+Windows display remains beyond the baseline; an unexpected display is reported,
+not removed by guessing its ownership. It never issues `remove --all` or
+`agent stop`.
 
 The script returns nonzero on a command failure, invalid JSON, failed assertion,
 or cleanup failure. Keep the full output for review. If the shell or computer
@@ -303,6 +315,21 @@ computer. Also check Windows Display Settings and the intended remote-desktop
 client in the same desktop session before treating the candidate as validated.
 Capture behavior, mixed-DPI arrangements, reconnects, sleep/resume, and different
 GPU/driver combinations need separate hardware coverage.
+
+### Updating the installed preview
+
+The background agent keeps its imported Python code until it exits. After
+finishing with any managed monitors, stop the agent before installing an updated
+checkout, even when the unreleased version number has not changed:
+
+```powershell
+virtumon agent stop
+python -m pip install .
+```
+
+If stopping reports that managed monitors remain, inspect them and remove the
+specific names you intend to close before updating. The next creation starts
+the updated agent automatically.
 
 ## Pinned backend references
 

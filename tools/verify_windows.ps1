@@ -223,19 +223,35 @@ catch {
 }
 finally {
     if ($createAttempted) {
+        $cleanupNeeded = $true
         try {
-            Write-Host "`nCleaning up only: $testName"
-            $removed = Get-VirtumonJson -Arguments @('remove', $testName, '--json') -Shape Object
-            Assert-Check (@($removed.errors).Count -eq 0) 'Cleanup reported a removal error.'
-            Assert-Check (@($removed.removed) -contains $testName) 'Cleanup did not confirm removal of the test name.'
+            $cleanupManaged = Get-VirtumonJson -Arguments @('list', '--managed', '--json') -Quiet
+            $cleanupNeeded = @($cleanupManaged | Where-Object { $_.name -eq $testName }).Count -gt 0
         }
         catch {
             Set-FailureStatus
-            [Console]::Error.WriteLine("Cleanup failed for ${testName}: $($_.Exception.Message)")
+            [Console]::Error.WriteLine("Could not inspect cleanup state for ${testName}: $($_.Exception.Message). Attempting removal of only this name.")
+        }
+
+        if ($cleanupNeeded) {
+            try {
+                Write-Host "`nCleaning up only: $testName"
+                $removed = Get-VirtumonJson -Arguments @('remove', $testName, '--json') -Shape Object
+                Assert-Check (@($removed.errors).Count -eq 0) 'Cleanup reported a removal error.'
+                Assert-Check (@($removed.removed) -contains $testName) 'Cleanup did not confirm removal of the test name.'
+            }
+            catch {
+                Set-FailureStatus
+                [Console]::Error.WriteLine("Cleanup failed for ${testName}: $($_.Exception.Message)")
+            }
+        }
+        else {
+            Write-Host "`nTemporary monitor is already absent from the managed list; verifying desktop cleanup."
         }
 
         try {
             $deadline = [DateTime]::UtcNow.AddSeconds(10)
+            $baselineDeviceNames = @($baselineDisplays | ForEach-Object { $_.device })
             do {
                 $managed = Get-VirtumonJson -Arguments @('list', '--managed', '--json') -Quiet
                 $displays = Get-VirtumonJson -Arguments @('list', '--json') -Quiet
@@ -244,11 +260,16 @@ finally {
                 if ($null -ne $created -and $created.device) {
                     $stillVisible = @($displays | Where-Object { $_.device -eq $created.device }).Count -gt 0
                 }
-                if (-not $stillManaged -and -not $stillVisible) { break }
+                # Failed creation may return no identity, so an empty managed
+                # list alone cannot prove that its native display was removed.
+                $additionalDisplays = @($displays | Where-Object { $baselineDeviceNames -notcontains $_.device })
+                if (-not $stillManaged -and -not $stillVisible -and $additionalDisplays.Count -eq 0) { break }
                 Start-Sleep -Milliseconds 500
             } while ([DateTime]::UtcNow -lt $deadline)
             Assert-Check (-not $stillManaged) 'Test name remains in the managed list after cleanup.'
             Assert-Check (-not $stillVisible) 'Test display remains active in Windows after cleanup.'
+            $additionalDeviceNames = @($additionalDisplays | ForEach-Object { $_.device }) -join ', '
+            Assert-Check ($additionalDisplays.Count -eq 0) "Additional Windows displays remain after cleanup: $additionalDeviceNames. Their ownership is unverified; they were not modified."
             Assert-DisplaySchema -Displays $displays
             Assert-ExistingMonitorsPreserved -Displays $displays -Managed $managed
             Write-Host 'Cleanup verified; pre-existing displays and managed identities are preserved.'

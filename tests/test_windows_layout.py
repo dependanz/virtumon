@@ -66,7 +66,8 @@ class FakeAPI:
         self.screens = [screen(100, 1, 7, 0, "PHYSICAL"),
                         screen(200, -3, 7, 1, "VIRTUAL", x=1920, width=800, height=600, active=not inactive)]
         self.options = [mode(800, 600), mode(1280, 720), mode(1920, 1080)]
-        self.sources = [W._DeviceSource("VIRTUAL", 0 if inactive else 1, ("monitor-interface-virtual",))]
+        self.sources = [W._DeviceSource("VIRTUAL", 0 if inactive else 1, ("monitor-interface-virtual",)),
+                        W._DeviceSource("PHYSICAL", 1 | 4, ("monitor-interface-physical",))]
         self.calls = []
         self.test_result = self.apply_result = 0
         self.on_test = self.on_apply = None
@@ -109,6 +110,9 @@ class FakeAPI:
         if change.dmFields & W.DM_DISPLAYFREQUENCY:
             s["refresh"] = change.dmDisplayFrequency
         s["active"] = bool(s["width"] and s["height"])
+        for source in self.sources:
+            if source.device == device:
+                source.flags = source.flags | 1 if s["active"] else source.flags & ~1
         if self.on_apply:
             callback, self.on_apply = self.on_apply, None
             callback(self)
@@ -204,6 +208,7 @@ class LayoutTests(unittest.TestCase):
         # Actual native CI values: SOURCE id 0 is mode 1, TARGET 5527112 is
         # mode 0. The path's flags are only ACTIVE, even for the packed query.
         self.api.screens = [screen(23539, 0, 5527112, 0, "DISPLAY1", width=1024, height=768, refresh=64)]
+        self.api.sources = [W._DeviceSource("DISPLAY1", 1 | 4, ("physical-interface",))]
         for aware in (True, False):
             with self.subTest(virtual_mode_aware=aware):
                 current = self.api.snapshot()
@@ -257,6 +262,89 @@ class LayoutTests(unittest.TestCase):
         self.assertEqual(self.api.screens[0], physical)
         self.assertEqual([(name, flags) for name, _, flags in self.api.calls], [("VIRTUAL", 2), ("VIRTUAL", 0)])
 
+    def test_nonprimary_target_at_ccd_origin_moves_beside_existing_primary(self):
+        # Reproduce the layout condition implied by the first hardware failure,
+        # with independent GDI evidence that the new source is not primary.
+        self.api.screens[0].update(width=2560, height=1600)
+        self.api.screens[1].update(x=0, y=0)
+        physical = dict(self.api.screens[0])
+        self.assertFalse(W.wait_for_display(VIRTUAL, timeout=0).primary)
+        actual = self.configure(x=2560)
+        self.assertEqual((actual.x, actual.y, actual.width, actual.height, actual.primary),
+                         (2560, 0, 1280, 720, False))
+        self.assertEqual(self.api.screens[0], physical)
+        self.assertEqual([(name, flags) for name, _, flags in self.api.calls], [("VIRTUAL", 2), ("VIRTUAL", 0)])
+
+    def test_gdi_primary_cannot_be_moved_even_when_ccd_position_is_nonzero(self):
+        self.api.sources[0].flags = 1 | 4
+        self.api.sources[1].flags = 1
+        with self.assertRaisesRegex(W.WindowsLayoutError, "primary.*target=VIRTUAL.*requested=\\(1920, 0\\)"):
+            self.configure()
+        self.assertFalse(self.api.calls)
+
+    def test_uncertain_gdi_primary_metadata_prevents_any_native_change(self):
+        for case in ("missing", "duplicate", "detached", "no-primary", "multiple-primary"):
+            with self.subTest(case=case):
+                self.api.sources = [W._DeviceSource("VIRTUAL", 1, ("monitor-interface-virtual",)),
+                                    W._DeviceSource("PHYSICAL", 1 | 4, ("monitor-interface-physical",))]
+                if case == "missing":
+                    self.api.sources.pop(0)
+                elif case == "duplicate":
+                    self.api.sources.append(W._DeviceSource("virtual", 1, ("another-interface",)))
+                elif case == "detached":
+                    self.api.sources[0].flags = 0
+                elif case == "no-primary":
+                    self.api.sources[1].flags = 1
+                else:
+                    self.api.sources[0].flags = 1 | 4
+                with self.assertRaisesRegex(W.WindowsLayoutError, "consistent Windows display metadata"):
+                    self.configure()
+                self.assertFalse(self.api.calls)
+
+    def test_empty_ccd_cannot_hide_an_attached_gdi_desktop(self):
+        with self.assertRaisesRegex(W._PendingTopology, "no active paths.*attached display"):
+            W._records(self.api, snapshot([]))
+        self.api.sources = []
+        self.assertEqual(W._records(self.api, snapshot([])), [])
+
+    def test_gdi_metadata_settles_with_fresh_ccd_query_before_any_mode_call(self):
+        self.api.sources.pop(0)
+        clock, reads = [0.0], []
+        original_snapshot = self.api.snapshot
+
+        def observe(active_only=True):
+            reads.append(clock[0])
+            return original_snapshot(active_only)
+
+        def settle(delay):
+            self.assertFalse(self.api.calls)
+            clock[0] += delay
+            self.api.sources.insert(0, W._DeviceSource("virtual", 1, ("monitor-interface-virtual",)))
+
+        with patch.object(self.api, "snapshot", side_effect=observe), \
+                patch.object(W.time, "monotonic", side_effect=lambda: clock[0]), \
+                patch.object(W.time, "sleep", side_effect=settle):
+            actual = self.configure(timeout=1)
+        self.assertFalse(actual.primary)
+        self.assertAlmostEqual(clock[0], 0.1)
+        self.assertEqual(reads[:2], [0.0, 0.1])
+        self.assertEqual([flags for _, _, flags in self.api.calls], [2, 0])
+
+    def test_ownership_loss_during_gdi_metadata_wait_blocks_all_mode_calls(self):
+        self.api.sources.pop(0)
+        clock, current = [0.0], [True]
+
+        def invalidate(delay):
+            clock[0] += delay
+            current[0] = False
+
+        with patch.object(W.time, "monotonic", side_effect=lambda: clock[0]), \
+                patch.object(W.time, "sleep", side_effect=invalidate):
+            with self.assertRaisesRegex(W.WindowsLayoutError, "ownership is unverified"):
+                self.configure(timeout=1, guard=lambda: current[0])
+        self.assertAlmostEqual(clock[0], 0.1)
+        self.assertFalse(self.api.calls)
+
     def test_move_only_keeps_fractional_mode_and_supports_negative_coordinates(self):
         self.api.screens[1].update(width=1280, height=720, refresh=59.94)
         actual = self.configure(x=-1280, refresh_hz=59.94)
@@ -279,13 +367,13 @@ class LayoutTests(unittest.TestCase):
 
     def test_inactive_source_can_settle_before_configure_timeout(self):
         self.api.screens[1]["active"] = False
-        self.api.sources = []
+        self.api.sources = self.api.sources[1:]
         clock = [0.0]
 
         def settle(delay):
             self.assertFalse(self.api.calls, "No mode test or write is safe before association resolves")
             clock[0] += delay
-            self.api.sources = [W._DeviceSource("VIRTUAL", 0, ("monitor-interface-virtual",))]
+            self.api.sources.insert(0, W._DeviceSource("VIRTUAL", 0, ("monitor-interface-virtual",)))
 
         with patch.object(W.time, "monotonic", side_effect=lambda: clock[0]), \
                 patch.object(W.time, "sleep", side_effect=settle):
@@ -297,7 +385,7 @@ class LayoutTests(unittest.TestCase):
 
     def test_inactive_resolution_timeout_is_bounded_and_reports_latest_cause(self):
         self.api.screens[1]["active"] = False
-        self.api.sources = []
+        self.api.sources = self.api.sources[1:]
         clock = [0.0]
 
         def advance(delay):
@@ -346,13 +434,16 @@ class LayoutTests(unittest.TestCase):
 
     def test_inactive_candidate_cannot_reuse_an_active_physical_source(self):
         self.api.screens[1].update(low=100, high=1, target=8, source=0, device="PHYSICAL", active=False)
-        self.api.sources = [W._DeviceSource("PHYSICAL", 0, ("monitor-interface-virtual",))]
-        with self.assertRaisesRegex(W.WindowsLayoutError, "clone mode"):
+        self.api.sources = [W._DeviceSource("PHYSICAL", 1 | 4, ("monitor-interface-virtual",))]
+        with self.assertRaisesRegex(W.WindowsLayoutError, "unique, unused"):
             self.configure(identity=Identity(100, 1, 8))
         self.assertFalse(self.api.calls)
 
     def test_clone_mode_is_rejected_before_any_write(self):
         self.api.screens[1].update(low=100, high=1, target=8, source=0, device="PHYSICAL", x=0)
+        clones = W.list_native_displays()
+        self.assertEqual(len(clones), 2)
+        self.assertTrue(all(display.primary for display in clones))
         with self.assertRaisesRegex(W.WindowsLayoutError, "clone mode"):
             self.configure(identity=Identity(100, 1, 8))
         self.assertFalse(self.api.calls)
@@ -391,6 +482,16 @@ class LayoutTests(unittest.TestCase):
         with self.assertRaisesRegex(W.WindowsLayoutError, "desktop changed"):
             self.configure()
         self.assertEqual([flags for _, _, flags in self.api.calls], [2])
+
+    def test_primary_source_change_during_mode_test_aborts_before_apply(self):
+        def switch_primary(api):
+            api.sources[0].flags = 1 | 4
+            api.sources[1].flags = 1
+
+        self.api.on_test = switch_primary
+        with self.assertRaisesRegex(W.WindowsLayoutError, "desktop changed"):
+            self.configure()
+        self.assertEqual([flags for _, _, flags in self.api.calls], [W.CDS_TEST])
 
     def test_bad_readback_restores_only_the_target(self):
         original = [dict(s) for s in self.api.screens]
@@ -449,13 +550,13 @@ class LayoutTests(unittest.TestCase):
 
     def test_ownership_invalidation_during_inactive_resolution_blocks_ready_source(self):
         self.api.screens[1]["active"] = False
-        self.api.sources = []
+        self.api.sources = self.api.sources[1:]
         current, clock = [True], [0.0]
 
         def settle_in_new_generation(delay):
             clock[0] += delay
             current[0] = False
-            self.api.sources = [W._DeviceSource("VIRTUAL", 0, ("monitor-interface-virtual",))]
+            self.api.sources.insert(0, W._DeviceSource("VIRTUAL", 0, ("monitor-interface-virtual",)))
 
         with patch.object(W.time, "monotonic", side_effect=lambda: clock[0]), \
                 patch.object(W.time, "sleep", side_effect=settle_in_new_generation):
@@ -643,6 +744,10 @@ class NativeWindowsProbeTests(unittest.TestCase):
             self.assertTrue(record.display.device)
             self.assertGreater(record.display.width, 0)
             self.assertGreater(record.display.height, 0)
+            matched = [source for source in sources
+                       if source.device.casefold() == record.display.device.casefold()]
+            self.assertEqual(len(matched), 1)
+            self.assertEqual(record.display.primary, bool(matched[0].flags & W.DISPLAY_DEVICE_PRIMARY_DEVICE))
             native_mode = api.current_mode(record.display.device)
             if native_mode is not None:
                 self.assertEqual(native_mode.dmSize, C.sizeof(W._DEVMODE))
