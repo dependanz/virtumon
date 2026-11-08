@@ -158,6 +158,52 @@ coordinates so an unsuccessful hardware run can be diagnosed without guessing.
 Virtumon's managed records. It does not mean "remove every display on the
 computer". Use explicit names during initial testing.
 
+### When Windows starts the new monitor as a clone
+
+An observed creation failure showed a stable virtual clone across display
+adapters: the new SudoVDA target had its own CCD source identity, but its GDI
+source was detached. The physical screen's attached GDI source listed both
+monitor interfaces, and a legacy CCD query described the shared desktop. In
+that situation, waiting longer for an independent GDI source could not extend
+the monitor. Microsoft's [CCD example](https://learn.microsoft.com/en-us/windows-hardware/drivers/display/ccd-example-code)
+also describes virtual clones whose separate sources have the same position.
+
+During `create`, the candidate has a narrow path for promoting this verified,
+newly owned virtual target to an independent desktop at its requested mode and
+position. It checks the exact adapter/target identity, the clone
+association, the pre-creation baseline, and current ownership. Ambiguous source
+associations remain errors. Generic display discovery stays strict, and
+read-only commands do not change a cloned desktop.
+
+The promotion builds a supplied CCD configuration containing every active path
+in its existing order. Changes are confined to the owned target's configuration;
+other paths and their source, target, and desktop-image modes are preserved.
+It uses [`SetDisplayConfig`](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-setdisplayconfig)
+with `SDC_VALIDATE`, then `SDC_APPLY`, together with
+`SDC_USE_SUPPLIED_DISPLAY_CONFIG | SDC_VIRTUAL_MODE_AWARE`. It does not request
+`SDC_ALLOW_CHANGES`, a global extend topology, or persistence in Windows' display
+database. Fresh observations check the other displays before and after applying
+the configuration. Readback must confirm independent GDI attachment, desktop
+geometry, primary status, and the requested actual signal size and refresh.
+
+Ownership guards also cover validation, application, and subsequent discovery.
+An ownership interruption stops further layout writes. If promotion succeeds
+but a later creation step fails, cleanup removes the newly created monitor by
+its journaled UUID. It does not replay the old cloned desktop as a broad
+rollback. Unconfirmed removal retains the ownership record and its error for
+later recovery.
+
+`SetDisplayConfig` accepts the complete active configuration, so an external
+display change between the last query and the apply call remains a race; the
+API provides no conditional apply tied to that queried snapshot. Leave Windows
+Display Settings and other display controllers alone during the acceptance
+test. If another display changes, the operation reports the discrepancy and
+attempts cleanup of its own monitor rather than guessing how to restore the
+other display.
+
+This path still needs a successful native hardware acceptance run. Passing
+simulated topology tests does not establish driver or remote-desktop behavior.
+
 ### JSON output
 
 Ordinary `list --json` keeps the existing array of active Windows displays:
@@ -338,6 +384,11 @@ the error now distinguishes a missing GDI source, duplicate source matches,
 and a matching source whose attached flag is clear. The timeout captures the
 exact CCD snapshot and GDI enumeration that failed, followed by bounded,
 best-effort read-only observations from the other Windows display APIs.
+
+A detached GDI source does not by itself distinguish transient arrival from a
+stable clone. The [creation-time clone path](#when-windows-starts-the-new-monitor-as-a-clone)
+handles only the verified case described above; other missing or ambiguous
+associations continue to fail without a speculative display change.
 
 When this happens during creation, Virtumon saves a report before removing its
 new monitor by UUID. The error prints its path:

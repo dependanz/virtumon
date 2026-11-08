@@ -18,6 +18,16 @@
 - Save the exact CCD/GDI observations from a metadata timeout before creation
   cleanup, including source-match counts, raw flags, identities, and operation
   phase. Diagnostic failures cannot replace the original error or skip cleanup.
+- Add a creation-time path for a verified new SudoVDA target that Windows starts
+  as a virtual clone across adapters. Validate and apply a nonpersistent supplied
+  CCD configuration while preserving other active paths and their modes, then
+  verify independent GDI attachment and the requested signal mode. Generic
+  discovery remains strict.
+- Guard clone promotion against ownership loss and observed topology changes;
+  later creation failures retain exact-GUID cleanup rather than replaying the
+  cloned desktop. Document the remaining race with external display changes.
+- Avoid polling a stale native target during creation cleanup after ownership
+  continuity is lost; removal still addresses the journaled monitor UUID.
 
 This preview requires a separately installed SudoVDA driver. Native creation and
 remote-desktop behavior still require verification on a Windows machine with that

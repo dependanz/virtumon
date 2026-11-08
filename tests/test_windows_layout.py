@@ -168,7 +168,8 @@ class ABITests(unittest.TestCase):
             return 0
 
         dll.GetDisplayConfigBufferSizes, dll.QueryDisplayConfig = Function(sizes), Function(query)
-        for name in ("DisplayConfigGetDeviceInfo", "EnumDisplayDevicesW", "EnumDisplaySettingsExW", "ChangeDisplaySettingsExW"):
+        for name in ("DisplayConfigGetDeviceInfo", "EnumDisplayDevicesW", "EnumDisplaySettingsExW",
+                     "ChangeDisplaySettingsExW", "SetDisplayConfig"):
             setattr(dll, name, Function())
         api = W._Win32(dll)
         result = api.snapshot()

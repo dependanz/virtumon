@@ -190,7 +190,8 @@ class MonitorManager:
                 phase = "configure"
                 display = self.layout.configure_display(identity, record["width"], record["height"],
                                                         record["refresh_hz"], *position,
-                                                        guard=lambda: self._current(record))
+                                                        guard=lambda: self._current(record),
+                                                        creation_baseline=before)
                 phase = "verify-created-display"
                 after = self.layout.list_native_displays()
                 by_key = {display_key(item): item for item in after}
@@ -220,7 +221,7 @@ class MonitorManager:
                         with self.driver_factory() as driver:
                             self._check_driver_path(record, driver)
                             removed = driver.remove(record["id"])
-                        if removed and identity is not None:
+                        if removed and identity is not None and self._current(record):
                             self._wait_removed(identity)
                     except Exception as cleanup_exc:
                         cleanup_error = str(cleanup_exc)

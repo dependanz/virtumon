@@ -1,8 +1,10 @@
 """Targeted Windows display layout changes using current-session CCD identity.
 
 Identity is the complete adapter LUID and target ID, not a persistent ownership
-token. The backend must establish ownership before calling this module. No
-global topology operations or registry-persisting display changes are used.
+token. The backend must establish ownership before calling this module.
+Ordinary changes address a named GDI source. Creation can also separate a
+verified virtual clone using a supplied CCD configuration that preserves every
+other path. No topology presets or registry-persisting changes are used.
 """
 
 from __future__ import annotations
@@ -23,6 +25,8 @@ DISPLAY_DEVICE_ATTACHED_TO_DESKTOP, DISPLAY_DEVICE_PRIMARY_DEVICE = 1, 4
 QDC_ALL_PATHS, QDC_ONLY_ACTIVE_PATHS, QDC_VIRTUAL_MODE_AWARE = 1, 2, 0x10
 DM_POSITION, DM_PELSWIDTH, DM_PELSHEIGHT, DM_DISPLAYFREQUENCY = 0x20, 0x80000, 0x100000, 0x400000
 CDS_TEST = 2
+SDC_USE_SUPPLIED_DISPLAY_CONFIG, SDC_VALIDATE, SDC_APPLY = 0x20, 0x40, 0x80
+SDC_VIRTUAL_MODE_AWARE = 0x8000
 _lock = threading.RLock()
 
 
@@ -247,6 +251,7 @@ class _Win32:
             "GetDisplayConfigBufferSizes": (I32, [U32, C.POINTER(U32), C.POINTER(U32)]),
             "QueryDisplayConfig": (I32, [U32, C.POINTER(U32), C.POINTER(_PATH_INFO),
                                          C.POINTER(U32), C.POINTER(_MODE_INFO), C.POINTER(U32)]),
+            "SetDisplayConfig": (I32, [U32, C.POINTER(_PATH_INFO), U32, C.POINTER(_MODE_INFO), U32]),
             "DisplayConfigGetDeviceInfo": (I32, [C.POINTER(_INFO_HEADER)]),
             "EnumDisplayDevicesW": (I32, [C.c_wchar_p, U32, C.POINTER(_DISPLAY_DEVICE), U32]),
             "EnumDisplaySettingsExW": (I32, [C.c_wchar_p, U32, C.POINTER(_DEVMODE), U32]),
@@ -334,6 +339,17 @@ class _Win32:
     def change_mode(self, device: str, mode: _DEVMODE, flags: int) -> int:
         return self.dll.ChangeDisplaySettingsExW(device, C.byref(mode), None, flags, None)
 
+    def set_config(self, snapshot: _Snapshot, *, validate: bool) -> int:
+        if not snapshot.virtual_mode_aware or not snapshot.paths:
+            raise WindowsLayoutError("A nonempty virtual-aware CCD configuration is required.")
+        paths = (_PATH_INFO * len(snapshot.paths))(*snapshot.paths)
+        modes = (_MODE_INFO * len(snapshot.modes))(*snapshot.modes)
+        # Deliberately omit ALLOW_CHANGES, SAVE_TO_DATABASE, topology presets,
+        # and forced mode enumeration. Unrelated supplied modes must stay fixed.
+        flags = (SDC_USE_SUPPLIED_DISPLAY_CONFIG | SDC_VIRTUAL_MODE_AWARE |
+                 (SDC_VALIDATE if validate else SDC_APPLY))
+        return self.dll.SetDisplayConfig(len(paths), paths, len(modes), modes, flags)
+
 
 def _get_api():
     return _Win32()
@@ -368,10 +384,11 @@ def _refresh_rate(rate: _RATIONAL) -> float | None:
     return numerator / denominator
 
 
-def _records(api, snapshot: _Snapshot) -> list[_Record]:
-    records, names = [], {}
+def _records(api, snapshot: _Snapshot, *, device_sources=None, source_names=None) -> list[_Record]:
+    records, names = [], dict(source_names or {})
     active_paths = [path for path in snapshot.paths if path.flags & ACTIVE]
-    device_sources = api.device_sources()
+    if device_sources is None:
+        device_sources = api.device_sources()
 
     def pending(message, problem_device=None):
         error = _PendingTopology(message)
@@ -489,7 +506,24 @@ def _pause(deadline):
     return True
 
 
-def _active_records(api, deadline, guard=None, *, phase="discovery"):
+def _metadata_report(api, observation, reason, phase):
+    """Best-effort failure evidence; never replace the operation's exception."""
+    try:
+        from .windows_diagnostics import capture_metadata, enrich_metadata
+        snapshot, sources, names, problem_device = observation
+        report = capture_metadata(snapshot, sources, names, reason=reason,
+                                  problem_device=problem_device)
+        report["phase"] = phase
+        try:
+            return enrich_metadata(report, api)
+        except Exception as exc:
+            report["enrichment_error"] = str(exc)
+            return report
+    except Exception as exc:
+        return {"phase": phase, "reason": reason, "capture_error": str(exc)}
+
+
+def _active_records(api, deadline, guard=None, *, phase="discovery", pending_handler=None):
     while True:
         _check_guard(guard)
         try:
@@ -498,36 +532,27 @@ def _active_records(api, deadline, guard=None, *, phase="discovery"):
             records = _records(api, api.snapshot())
         except _PendingTopology as exc:
             _check_guard(guard)
+            if pending_handler is not None:
+                resolved = pending_handler(exc)
+                if resolved is not None:
+                    _check_guard(guard)
+                    return resolved
             if not _pause(deadline):
                 error = WindowsLayoutError(
                     f"Timed out waiting for consistent Windows display metadata. Latest error: {exc}"
                 )
                 if exc.observation is not None:
-                    try:
-                        from .windows_diagnostics import capture_metadata, enrich_metadata
-                        snapshot, sources, names, problem_device = exc.observation
-                        report = capture_metadata(snapshot, sources, names, reason=str(exc),
-                                                  problem_device=problem_device)
-                        report["phase"] = phase
-                        error.diagnostics = report
-                        try:
-                            error.diagnostics = enrich_metadata(report, api)
-                        except Exception as enrichment_exc:
-                            report["enrichment_error"] = str(enrichment_exc)
-                    except Exception as diagnostic_exc:
-                        # Diagnostics must never replace the original failure or
-                        # interfere with the manager's exact-GUID cleanup.
-                        error.diagnostics = {"phase": phase, "reason": str(exc),
-                                             "capture_error": str(diagnostic_exc)}
+                    error.diagnostics = _metadata_report(api, exc.observation, str(exc), phase)
                 raise error from exc
             continue
         _check_guard(guard)
         return records
 
 
-def _wait(api, key, deadline, guard=None):
+def _wait(api, key, deadline, guard=None, *, pending_handler=None):
     while True:
-        records = _active_records(api, deadline, guard, phase="arrival")
+        options = {"pending_handler": pending_handler} if pending_handler is not None else {}
+        records = _active_records(api, deadline, guard, phase="arrival", **options)
         target = _active_target(records, key)
         if target is not None:
             return target.display
@@ -716,14 +741,18 @@ def _rollback(api, before, target, previous, guard=None):
 
 def configure_display(identity: DisplayIdentity, width: int, height: int, refresh_hz: float,
                       x: int, y: int, timeout: float = 10, *,
-                      guard: Callable[[], bool] | None = None) -> NativeDisplay:
+                      guard: Callable[[], bool] | None = None,
+                      creation_baseline: list[NativeDisplay] | None = None) -> NativeDisplay:
     """Set and verify one owned monitor while preserving all other active paths.
 
     An inactive target is attached only when its exact monitor interface is
     associated with one unused GDI source. Inactive source metadata may settle
     within the same timeout used for arrival and verification. Changes are not
-    saved to the Windows persistence database. Failure attempts a guarded
-    rollback of this target. An optional current-session ownership guard is
+    saved to the Windows persistence database. During creation only, a supplied
+    pre-add baseline and live guard allow a verified virtual clone to become an
+    independent source. That operation preserves all other CCD paths and modes;
+    failure relies on the manager's exact-GUID cleanup, never a desktop replay.
+    Ordinary GDI failure attempts a guarded rollback of this target. A guard is
     checked throughout discovery, application, and rollback. Once it fails,
     this operation performs no further native display changes.
     """
@@ -735,12 +764,27 @@ def configure_display(identity: DisplayIdentity, width: int, height: int, refres
     with _lock:
         _check_guard(guard)
         api = _get_api()
-        _wait(api, key, deadline, guard)
+        pending_options = {}
+        if creation_baseline is not None and guard is not None:
+            from .windows_clone import extend_new_clone
+            clone_resolved = False
+
+            def pending_handler(error):
+                nonlocal clone_resolved
+                if clone_resolved:
+                    return None
+                resolved = extend_new_clone(api, error.observation, key, creation_baseline,
+                                            width, height, refresh_hz, x, y, deadline, guard)
+                clone_resolved = resolved is not None
+                return resolved
+
+            pending_options["pending_handler"] = pending_handler
+        _wait(api, key, deadline, guard, **pending_options)
         while True:
             # Arrival can precede GDI source association. Re-read both active
             # topology and inactive candidates instead of reusing stale paths.
             _check_guard(guard)
-            before = _active_records(api, deadline, guard, phase="prepare")
+            before = _active_records(api, deadline, guard, phase="prepare", **pending_options)
             _check_guard(guard)
             target = _active_target(before, key)
             if target is not None:

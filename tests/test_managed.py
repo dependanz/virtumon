@@ -65,13 +65,15 @@ class FakeLayout:
         self.after_configure = None
         self.return_override = None
         self.guards = []
+        self.creation_baselines = []
 
     def list_native_displays(self):
         return list(self.screens.values())
 
-    def configure_display(self, identity, width, height, refresh, x, y, *, guard=None):
+    def configure_display(self, identity, width, height, refresh, x, y, *, guard=None, creation_baseline=None):
         self.configure_calls.append((identity, width, height, refresh, x, y))
         self.guards.append(guard)
+        self.creation_baselines.append(creation_baseline)
         if self.before_configure:
             self.before_configure()
         if guard is not None and not guard():
@@ -210,6 +212,7 @@ class ManagedMonitorTests(unittest.TestCase):
         self.assertEqual(saved["last_observed"]["device"], row["device"])
         self.assertEqual(len(self.layout.configure_calls), 1)
         self.assertEqual(key(self.layout.configure_calls[0][0]), key(self.driver.native[row["id"]]))
+        self.assertEqual(self.layout.creation_baselines, [[self.physical, self.unrelated]])
         self.assert_unrelated_unchanged()
 
     def test_journal_write_failure_prevents_native_creation(self):
@@ -311,6 +314,19 @@ class ManagedMonitorTests(unittest.TestCase):
             self.manager.create(request())
         self.assertEqual(self.driver.remove_calls, [self.driver.add_calls[0][0]])
         self.assertEqual(self.store.load(), [])
+        self.assert_unrelated_unchanged()
+
+    def test_creation_cleanup_uses_uuid_without_polling_a_recycled_target_after_generation_loss(self):
+        self.driver.keep_os_display_after_remove = True
+        self.layout.after_configure = lambda _screen: self.health.fail("ownership generation ended")
+        with patch.object(self.layout, "is_display_present", side_effect=AssertionError("stale target was polled")) as probe:
+            with self.assertRaisesRegex(OperationError, "heartbeat was interrupted.*No new virtumon was retained"):
+                self.manager.create(request())
+        probe.assert_not_called()
+        self.assertEqual(self.driver.remove_calls, [self.driver.add_calls[0][0]])
+        self.assertEqual(self.driver.native, {})
+        self.assertEqual(self.store.load(), [])
+        self.assertEqual(len(self.layout.configure_calls), 1)
         self.assert_unrelated_unchanged()
 
     def test_rollback_refuses_a_different_driver_and_retains_original_ownership(self):
