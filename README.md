@@ -46,11 +46,11 @@ guide before installing it.
 The preview requires exactly one enabled SudoVDA adapter and rejects multiple
 adapters. It records that adapter's device path with each managed monitor.
 A Windows 11 hardware test revealed that adding a second monitor can clone the
-first monitor onto the physical screen. Until the complete owned layout can be
-reconciled safely, **this preview allows only one managed monitor at a time**.
-Attempting another creation fails before calling the driver; `list --managed`
-still reports an existing monitor as an error if Windows display discovery
-becomes inconsistent. Exact-name removal remains available.
+first monitor onto the physical screen. The main preview therefore supports
+only one managed monitor at a time. A separate
+[`feature/windows-multi-monitor-reconcile` experimental branch](docs/windows-backend.md#experimental-two-display-reconciliation-separate-branch)
+has an opt-in guarded all-owned-target update that is **not yet hardware
+validated**. Exact-name removal remains available.
 
 ```console
 virtumon create workspace --resolution 1920x1080 --refresh 60

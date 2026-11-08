@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass, replace
 import itertools
+import os
 import json
 from pathlib import Path
 import tempfile
@@ -67,14 +68,22 @@ class FakeLayout:
         self.return_override = None
         self.guards = []
         self.creation_baselines = []
+        self.owned_baselines = []
+        self.capture_calls = []
+
+    def capture_creation_baseline(self, expected):
+        self.capture_calls.append(list(expected))
+        return ("synthetic CCD", "synthetic GDI")
 
     def list_native_displays(self):
         return list(self.screens.values())
 
-    def configure_display(self, identity, width, height, refresh, x, y, *, guard=None, creation_baseline=None):
+    def configure_display(self, identity, width, height, refresh, x, y, *, guard=None,
+                          creation_baseline=None, owned_baseline=None, captured_baseline=None):
         self.configure_calls.append((identity, width, height, refresh, x, y))
         self.guards.append(guard)
         self.creation_baselines.append(creation_baseline)
+        self.owned_baselines.append(owned_baseline)
         if self.before_configure:
             self.before_configure()
         if guard is not None and not guard():
@@ -199,6 +208,34 @@ class ManagedMonitorTests(unittest.TestCase):
         self.assertEqual(self.driver.remove_calls, [])
         self.assertEqual(self.layout.configure_calls, [])
         self.assertIn(key(identity), self.layout.screens)
+        self.assert_unrelated_unchanged()
+
+    def test_opt_in_two_monitor_creation_passes_owned_and_full_baselines(self):
+        record, identity = self.seed()
+        existing = self.layout.screens[key(identity)]
+        record["last_observed"] = {
+            "device": existing.device, "x": existing.x, "y": existing.y,
+            "width": existing.width, "height": existing.height,
+            "refresh_hz": existing.refresh_hz, "primary": existing.primary,
+        }
+        record["driver_path"] = self.driver.device_path
+        self.store.save([record])
+        with patch.dict(os.environ, {"VIRTUMON_EXPERIMENTAL_MULTI": "1"}):
+            row = self.manager.create(request("chat", side="right", anchor="work", width=1080, height=1920))
+        self.assertEqual(row["status"], "active")
+        self.assertEqual((row["x"], row["y"], row["width"], row["height"]), (existing.x + existing.width, existing.y, 1080, 1920))
+        self.assertEqual(self.layout.capture_calls, [[self.physical, self.unrelated, existing]])
+        self.assertEqual(self.layout.owned_baselines, [[existing]])
+        self.assertEqual(len(self.store.load()), 2)
+        self.assert_unrelated_unchanged()
+
+    def test_opt_in_rejects_stale_or_unverified_existing_identity_without_add(self):
+        self.seed()
+        with patch.dict(os.environ, {"VIRTUMON_EXPERIMENTAL_MULTI": "1"}):
+            with self.assertRaisesRegex(OperationError, "changed since it was created"):
+                self.manager.create(request("chat"))
+        self.assertEqual(self.driver.add_calls, [])
+        self.assertEqual(self.layout.capture_calls, [])
         self.assert_unrelated_unchanged()
 
     def test_failed_native_discovery_lists_degraded_managed_monitor_without_fabricated_geometry(self):

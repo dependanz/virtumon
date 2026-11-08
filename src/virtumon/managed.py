@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import os
 import re
 import threading
 import time
@@ -179,11 +180,14 @@ class MonitorManager:
             # even though the new display briefly appears independently.
             # Until one guarded CCD transaction can reconcile ALL owned
             # displays, refuse to mutate a nonempty managed layout.
-            if records:
+            experimental_multi = bool(records and os.environ.get("VIRTUMON_EXPERIMENTAL_MULTI") == "1")
+            if records and (not experimental_multi or len(records) > 1):
                 raise OperationError(
                     "Creating a second virtumon is temporarily unavailable in this preview: "
                     "Windows can displace an existing virtual monitor while adding another. "
-                    "Remove the existing virtumon before creating a new one."
+                    "Remove the existing virtumon before creating a new one. "
+                    "Experimental two-display reconciliation requires VIRTUMON_EXPERIMENTAL_MULTI=1 "
+                    "in the keeper's environment."
                 )
             health = self.health.snapshot()
             if health["error"]:
@@ -194,6 +198,29 @@ class MonitorManager:
             if any(x < item.x + item.width and x + request["width"] > item.x and
                    y < item.y + item.height and y + request["height"] > item.y for item in before):
                 raise OperationError("The requested position overlaps an existing display. Choose an outer edge of the desktop.")
+            multi_options = {}
+            if experimental_multi:
+                owned_before = []
+                for previous in records:
+                    if not self._current(previous) or previous.get("identity") is None:
+                        raise OperationError("A managed monitor has stale ownership; cannot add a second display.")
+                    ident = previous["identity"]
+                    key = ident["adapter_low"], ident["adapter_high"], ident["target_id"]
+                    matches = [item for item in before if display_key(item) == key]
+                    if len(matches) != 1:
+                        raise OperationError("A managed monitor is not independently attached; refusing another add.")
+                    display = matches[0]
+                    saved = previous.get("last_observed")
+                    if (saved is None or
+                            (display.device, display.x, display.y, display.width, display.height,
+                             display.primary) !=
+                            tuple(saved[field] for field in
+                                  ("device", "x", "y", "width", "height", "primary")) or
+                            abs(display.refresh_hz - saved["refresh_hz"]) > 0.02):
+                        raise OperationError("An existing virtumon changed since it was created; refusing another add.")
+                    owned_before.append(display)
+                capture = self.layout.capture_creation_baseline(before)
+                multi_options = {"owned_baseline":owned_before, "captured_baseline":capture}
             record = {key: request[key] for key in ("name", "width", "height", "refresh_hz")}
             record.update(id=str(uuid.uuid4()), backend="sudovda", identity=None,
                           session_id=self.session_id, generation=health["generation"])
@@ -204,6 +231,10 @@ class MonitorManager:
             phase = "driver-add"
             try:
                 with self.driver_factory() as driver:
+                    if experimental_multi and any(
+                            prior.get("driver_path") != driver.device_path for prior in records
+                            if prior["id"] != record["id"]):
+                        raise OperationError("An existing virtumon belongs to a different driver; refusing another add.")
                     record["driver_path"] = driver.device_path
                     self.store.save(records)
                     attempted = True
@@ -217,7 +248,7 @@ class MonitorManager:
                 display = self.layout.configure_display(identity, record["width"], record["height"],
                                                         record["refresh_hz"], *position,
                                                         guard=lambda: self._current(record),
-                                                        creation_baseline=before)
+                                                        creation_baseline=before, **multi_options)
                 phase = "verify-created-display"
                 after = self.layout.list_native_displays()
                 by_key = {display_key(item): item for item in after}

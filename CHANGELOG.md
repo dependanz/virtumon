@@ -1,5 +1,15 @@
 # Changelog
 
+## Experimental multi-monitor branch (unreleased)
+
+- Add opt-in `VIRTUMON_EXPERIMENTAL_MULTI=1` for a guarded two-monitor
+  reconciliation. Capture original CCD/GDI metadata before adding the second
+  monitor. If the first owned monitor is displaced, validate a single supplied
+  display configuration that restores all owned outputs and preserves all
+  non-owned modes, followed by independent GDI and real signal readback.
+- The default one-at-a-time safety block remains in place.
+- Hardware acceptance is required before releasing this path.
+
 ## 0.2.0a1 - Unreleased Windows preview
 
 - Named `create` and `remove` commands backed by SudoVDA's per-monitor GUID interface.

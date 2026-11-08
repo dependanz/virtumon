@@ -568,6 +568,18 @@ def _wait(api, key, deadline, guard=None, *, pending_handler=None):
             raise WindowsLayoutError("Timed out waiting for the backend's exact adapter LUID and target ID.")
 
 
+def capture_creation_baseline(expected: list[NativeDisplay]):
+    """Capture exact pre-add CCD modes and GDI associations for a guarded multi-add."""
+    api = _get_api()
+    snapshot = api.snapshot()
+    sources = api.device_sources()
+    records = _records(api, snapshot, device_sources=sources)
+    from .windows_multi import _layout_matches
+    if not _layout_matches(expected, [record.display for record in records]):
+        raise WindowsLayoutError("The desktop changed while capturing the pre-add display layout.")
+    return snapshot, sources
+
+
 def list_native_displays() -> list[NativeDisplay]:
     """Return active targets with physical-pixel geometry and actual refresh.
 
@@ -742,7 +754,9 @@ def _rollback(api, before, target, previous, guard=None):
 def configure_display(identity: DisplayIdentity, width: int, height: int, refresh_hz: float,
                       x: int, y: int, timeout: float = 10, *,
                       guard: Callable[[], bool] | None = None,
-                      creation_baseline: list[NativeDisplay] | None = None) -> NativeDisplay:
+                      creation_baseline: list[NativeDisplay] | None = None,
+                      owned_baseline: list[NativeDisplay] | None = None,
+                      captured_baseline=None) -> NativeDisplay:
     """Set and verify one owned monitor while preserving all other active paths.
 
     An inactive target is attached only when its exact monitor interface is
@@ -765,7 +779,26 @@ def configure_display(identity: DisplayIdentity, width: int, height: int, refres
         _check_guard(guard)
         api = _get_api()
         pending_options = {}
-        if creation_baseline is not None and guard is not None:
+        if owned_baseline is not None or captured_baseline is not None:
+            if not (owned_baseline and captured_baseline and creation_baseline and guard):
+                raise WindowsLayoutError("Multi-monitor creation requires a complete baseline and live guard.")
+            from .windows_multi import reconcile_new
+            multi_resolved = False
+
+            def pending_handler(error):
+                nonlocal multi_resolved
+                if multi_resolved:
+                    return None
+                resolved = reconcile_new(
+                    api, error.observation, key, creation_baseline,
+                    owned_baseline, captured_baseline, width, height, refresh_hz,
+                    x, y, deadline, guard,
+                )
+                multi_resolved = resolved is not None
+                return resolved
+
+            pending_options["pending_handler"] = pending_handler
+        elif creation_baseline is not None and guard is not None:
             from .windows_clone import extend_new_clone
             clone_resolved = False
 
