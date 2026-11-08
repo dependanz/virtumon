@@ -1,5 +1,25 @@
 # Releasing Virtumon
 
+## Windows management preview
+
+Version **0.2.0a1** on `feature/windows-virtual-monitors` is a candidate for
+hardware testing. Build and test the wheel, then retain the output of
+`tools/verify_windows.ps1 -Exercise` from a Windows desktop with the reviewed
+SudoVDA driver. Check the intended remote-desktop client in that same session.
+Unit tests and read-only Windows CI probes do not establish that native monitor
+creation works on the target machine.
+
+The [first native Windows acceptance result](docs/windows-acceptance-2026-11-07.md)
+passed on commit `fc6e197`: one 1280 x 720 monitor at 60 Hz, background lifetime
+beyond the watchdog interval, and removal preserving the original physical
+desktop. Concurrent monitors and the intended Chrome Remote Desktop workflow
+still need hardware observations before extending the validation claim.
+
+Feature-branch and pull-request workflows build distributions and run tests;
+they do not publish. Manual publication through the workflow is limited to
+`main`; version tags still publish after the build/test jobs pass. Do not create
+a release tag for an unvalidated candidate.
+
 ## PyPI Trusted Publishing
 
 For the first publication, configure a **pending publisher** at
