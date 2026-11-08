@@ -28,11 +28,15 @@
   cloned desktop. Document the remaining race with external display changes.
 - Avoid polling a stale native target during creation cleanup after ownership
   continuity is lost; removal still addresses the journaled monitor UUID.
+- Record the first successful [native Windows acceptance run](docs/windows-acceptance-2026-11-07.md):
+  one 1280 x 720 monitor at 60 Hz, active beyond the driver watchdog interval,
+  and selective removal with the original physical desktop preserved.
 
-This preview requires a separately installed SudoVDA driver. Native creation and
-remote-desktop behavior still require verification on a Windows machine with that
-driver. macOS and Linux creation are not implemented. No driver is bundled or
-installed automatically; the keeper communicates only over localhost.
+This preview requires a separately installed SudoVDA driver. The basic native
+cycle passed on Windows 11; concurrent monitors and remote-desktop behavior
+still require hardware verification. macOS and Linux creation are not
+implemented. No driver is bundled or installed automatically; the keeper
+communicates only over localhost.
 
 ## 0.1.0 - 2026-11-07
 

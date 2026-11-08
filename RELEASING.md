@@ -9,6 +9,12 @@ SudoVDA driver. Check the intended remote-desktop client in that same session.
 Unit tests and read-only Windows CI probes do not establish that native monitor
 creation works on the target machine.
 
+The [first native Windows acceptance result](docs/windows-acceptance-2026-11-07.md)
+passed on commit `fc6e197`: one 1280 x 720 monitor at 60 Hz, background lifetime
+beyond the watchdog interval, and removal preserving the original physical
+desktop. Concurrent monitors and the intended Chrome Remote Desktop workflow
+still need hardware observations before extending the validation claim.
+
 Feature-branch and pull-request workflows build distributions and run tests;
 they do not publish. Manual publication through the workflow is limited to
 `main`; version tags still publish after the build/test jobs pass. Do not create

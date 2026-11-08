@@ -101,9 +101,12 @@ path has changed, removal retains the record with an error; see the
 | Named virtual monitor creation/removal | 0.2.0a1 candidate; SudoVDA required | Planned | Planned |
 
 The candidate targets 64-bit Windows 10/11 with a compatible SudoVDA driver.
-Hardware creation, layout, and remote-desktop capture still need validation on
-the target computer. A virtual monitor must appear in the same desktop session
-that the remote-desktop application captures.
+A [native Windows 11 acceptance run](docs/windows-acceptance-2026-11-07.md)
+passed creation of a 1280 x 720, 60 Hz monitor, background lifetime beyond the
+driver watchdog interval, and selective removal while preserving the physical
+desktop. Multiple concurrent virtual monitors and remote-desktop capture still
+need hardware verification. A virtual monitor must appear in the same desktop
+session that the remote-desktop application captures.
 
 From the repository in PowerShell, the acceptance script is read-only by default:
 

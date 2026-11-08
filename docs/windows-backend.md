@@ -1,8 +1,10 @@
 # Windows virtual monitor backend
 
 This document describes the **unreleased Virtumon 0.2.0a1 candidate**. The
-published 0.1.0 package only provides display discovery. The implementation and
-its first hardware acceptance run must be reviewed before publishing a release.
+published 0.1.0 package only provides display discovery. A
+[native Windows 11 create/list/heartbeat/remove cycle](windows-acceptance-2026-11-07.md)
+has passed. Concurrent monitors and the intended remote-desktop workflow remain
+the next hardware checks.
 
 ## Prerequisites
 
@@ -201,8 +203,10 @@ test. If another display changes, the operation reports the discrepancy and
 attempts cleanup of its own monitor rather than guessing how to restore the
 other display.
 
-This path still needs a successful native hardware acceptance run. Passing
-simulated topology tests does not establish driver or remote-desktop behavior.
+The candidate containing this fix passed a
+[native single-monitor lifecycle test](windows-acceptance-2026-11-07.md).
+The console output does not identify the internal configuration path used;
+remote-desktop behavior and concurrent virtual monitors remain unverified.
 
 ### JSON output
 
