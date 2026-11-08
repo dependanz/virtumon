@@ -70,6 +70,19 @@ class FakeLayout:
         self.creation_baselines = []
         self.owned_baselines = []
         self.capture_calls = []
+        self.restore_calls = []
+        self.restore_error = None
+
+    def restore_after_removal(self, survivor, before, captured, removed_identity, *, guard=None):
+        self.restore_calls.append((survivor, list(before), captured, key(removed_identity)))
+        if guard is not None and not guard():
+            raise OperationError("Surviving monitor ownership is unverified.")
+        if self.restore_error:
+            raise self.restore_error
+        current = self.screens.get(key(survivor))
+        if current != survivor:
+            raise OperationError("Surviving monitor was not restored.")
+        return current
 
     def capture_creation_baseline(self, expected):
         self.capture_calls.append(list(expected))
@@ -577,14 +590,67 @@ class ManagedMonitorTests(unittest.TestCase):
         self.assertEqual([item["id"] for item in self.store.load()], [OWNED_ID])
 
     def test_named_removal_uses_exact_guid_and_deduplicates_names(self):
-        self.seed()
-        second, second_identity = self.seed("chat", SECOND_ID, target=9)
+        self._seed_verified_pair()
+        second_identity = NativeIdentity(77, -2, 9)
+        second = self.store.load()[1]
         result = self.manager.remove(["WORK", "work"])
         self.assertEqual(result, {"removed": ["work"], "errors": []})
+        self.assertEqual(len(self.layout.restore_calls), 1)
+        self.assertEqual(self.layout.restore_calls[0][0], self.layout.screens[key(second_identity)])
         self.assertEqual(self.driver.remove_calls, [OWNED_ID])
         self.assertEqual(self.store.load(), [second])
         self.assertIn(key(second_identity), self.layout.screens)
         self.assert_unrelated_unchanged()
+
+    def _seed_verified_pair(self):
+        entries = [self.seed(), self.seed("chat", SECOND_ID, target=9)]
+        for item, ident in entries:
+            display = self.layout.screens[key(ident)]
+            item["last_observed"] = {
+                field: getattr(display, field) for field in
+                ("device", "x", "y", "width", "height", "refresh_hz", "primary")
+            }
+            item["driver_path"] = self.driver.device_path
+        self.store.save([item for item, _ in entries])
+        return entries
+
+    def test_selective_removal_requires_valid_preflight_before_native_change(self):
+        self._seed_verified_pair()
+        self.layout.capture_creation_baseline = lambda _before: (_ for _ in ()).throw(
+            OperationError("native source changed")
+        )
+        result = self.manager.remove(["chat"])
+        self.assertEqual(result["removed"], [])
+        self.assertIn("before changing the driver", result["errors"][0]["error"])
+        self.assertEqual(self.driver.remove_calls, [])
+        self.assertEqual(len(self.store.load()), 2)
+
+    def test_selective_removal_reports_failed_survivor_restore_and_retains_its_uuid(self):
+        self._seed_verified_pair()
+        self.layout.restore_error = RuntimeError("Windows re-cloned the remaining source")
+        result = self.manager.remove(["chat"])
+        self.assertEqual(result["removed"], ["chat"])
+        self.assertEqual([item["name"] for item in self.store.load()], ["work"])
+        self.assertEqual(len(result["errors"]), 1)
+        self.assertIn("could not be verified/restored", result["errors"][0]["error"])
+        self.assertIn("remove work", result["errors"][0]["error"])
+        saved = self.store.load()[0]
+        self.assertIn("Windows re-cloned", saved["error"])
+        self.assertIn(saved["id"], self.driver.native)
+        self.assertEqual(self.driver.remove_calls, [SECOND_ID])
+        report = self.store.directory / "diagnostics" / f"remove-{SECOND_ID}.json"
+        self.assertTrue(report.exists())
+
+    def test_selective_removal_failure_does_not_prevent_final_exact_uuid_cleanup(self):
+        self._seed_verified_pair()
+        self.layout.restore_error = RuntimeError("survivor re-cloned")
+        result = self.manager.remove(["chat"])
+        self.assertEqual(result["removed"], ["chat"])
+        self.layout.restore_error = None
+        cleanup = self.manager.remove(["work"])
+        self.assertEqual(cleanup, {"removed": ["work"], "errors": []})
+        self.assertEqual(self.driver.remove_calls, [SECOND_ID, OWNED_ID])
+        self.assertEqual(self.store.load(), [])
 
     def test_remove_refuses_a_different_driver_without_clearing_record(self):
         original, identity = self.seed(driver_path=self.driver.device_path)

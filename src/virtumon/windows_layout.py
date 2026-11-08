@@ -580,6 +580,25 @@ def capture_creation_baseline(expected: list[NativeDisplay]):
     return snapshot, sources
 
 
+def restore_after_removal(survivor: NativeDisplay, before: list[NativeDisplay],
+                          captured, removed_identity, *,
+                          guard: Callable[[], bool] | None = None,
+                          timeout: float = 10) -> NativeDisplay:
+    """Verify (and for a proven clone reattach) the surviving owned monitor.
+
+    The physical display's desktop geometry and CCD signal must be unchanged.
+    Requires a pre-removal capture when both virtual outputs were attached.
+    """
+    _check_guard(guard)
+    with _lock:
+        _check_guard(guard)
+        from .windows_removal import restore_survivor
+        return restore_survivor(
+            _get_api(), survivor, before, captured, removed_identity,
+            _deadline(timeout), guard,
+        )
+
+
 def list_native_displays() -> list[NativeDisplay]:
     """Return active targets with physical-pixel geometry and actual refresh.
 

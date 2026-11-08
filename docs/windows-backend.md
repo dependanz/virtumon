@@ -41,12 +41,28 @@ validates the complete supplied configuration, rechecks the live topology
 and heartbeat, then applies and verifies both owned signal modes and
 independent GDI monitor-interface associations.
 
-**This is a hardware experiment, not a repair guarantee.** The driver
-may alter the existing desktop as soon as it adds the second monitor,
-before Virtumon can apply its correction. A validation or apply failure
-can leave an existing monitor cloned even when the new monitor is removed
-by its own GUID. Use a physical-screen fallback and do not change Windows
-Display Settings or run another SudoVDA controller during the test.
+**This is a hardware experiment, not a repair guarantee.** A native Windows
+11 run confirmed that two outputs can be created, remain independent for
+five seconds, and be viewed via Windows display enumeration. However,
+removing one output caused the other to become cloned onto the physical
+desktop. The experimental branch now attempts a *separate guarded
+post-removal repair*: with two verified managed records it captures
+pre-removal source and signal modes, removes the exact requested GUID,
+then checks that the remaining output still has its original mode, target
+identity, source, and monitor interface. If Windows re-clones it onto a
+known non-owned display, only that surviving owned target's CCD modes are
+adjusted using a validated supplied configuration. A physical display
+change blocks the repair. The removed UUID is journaled as removed even
+if survivor reattachment fails; the error identifies the surviving
+record and saves a local removal diagnostic.
+
+**Removal repair is not yet native-hardware validated.** The driver may
+alter the existing desktop as soon as it removes one monitor, before
+Virtumon can reattach the survivor. If the repair fails, remove the
+remaining named monitor by its UUID and verify that the physical
+desktop is intact. Never delete ownership records manually. Use a
+physical-screen fallback and do not change Windows Display Settings or
+run another SudoVDA controller during the test.
 If `work` is displaced, remove it by exact name, confirm the desktop
 returns to the physical display, and stop the agent before changing
 installations. Do not delete ownership state files manually.

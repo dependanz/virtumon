@@ -7,8 +7,15 @@
   monitor. If the first owned monitor is displaced, validate a single supplied
   display configuration that restores all owned outputs and preserves all
   non-owned modes, followed by independent GDI and real signal readback.
+- On removal of one of two managed monitors, capture and verify the
+  pre-removal desktop. If Windows turns the remaining output into a
+  clone, apply a guarded target-only CCD correction and verify exact
+  surviving UUID identity, independent GDI attachment, and actual signal
+  timing. If it cannot be safely repaired, report a partial failure
+  with a diagnostic rather than silently claiming success.
 - The default one-at-a-time safety block remains in place.
-- Hardware acceptance is required before releasing this path.
+- Hardware acceptance of survivor preservation after selective removal
+  is required before releasing this path.
 
 ## 0.2.0a1 - Unreleased Windows preview
 

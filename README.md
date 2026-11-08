@@ -49,8 +49,13 @@ A Windows 11 hardware test revealed that adding a second monitor can clone the
 first monitor onto the physical screen. The main preview therefore supports
 only one managed monitor at a time. A separate
 [`feature/windows-multi-monitor-reconcile` experimental branch](docs/windows-backend.md#experimental-two-display-reconciliation-separate-branch)
-has an opt-in guarded all-owned-target update that is **not yet hardware
-validated**. Exact-name removal remains available.
+has an opt-in guarded all-owned-target update. Two concurrent outputs have
+now been observed active through the SudoVDA watchdog on Windows 11, but
+removing either output can re-clone the surviving monitor onto the physical
+screen. A new selective-removal recovery path is **not yet hardware
+validated**: it captures the original layout before UUID removal and can
+reattach a proven owned clone while preserving non-owned CCD signal modes.
+Exact-name removal always uses the recorded UUID.
 
 ```console
 virtumon create workspace --resolution 1920x1080 --refresh 60
