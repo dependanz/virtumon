@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass, replace
 import itertools
+import os
 import json
 from pathlib import Path
 import tempfile
@@ -67,14 +68,35 @@ class FakeLayout:
         self.return_override = None
         self.guards = []
         self.creation_baselines = []
+        self.owned_baselines = []
+        self.capture_calls = []
+        self.restore_calls = []
+        self.restore_error = None
+
+    def restore_after_removal(self, survivor, before, captured, removed_identity, *, guard=None):
+        self.restore_calls.append((survivor, list(before), captured, key(removed_identity)))
+        if guard is not None and not guard():
+            raise OperationError("Surviving monitor ownership is unverified.")
+        if self.restore_error:
+            raise self.restore_error
+        current = self.screens.get(key(survivor))
+        if current != survivor:
+            raise OperationError("Surviving monitor was not restored.")
+        return current
+
+    def capture_creation_baseline(self, expected):
+        self.capture_calls.append(list(expected))
+        return ("synthetic CCD", "synthetic GDI")
 
     def list_native_displays(self):
         return list(self.screens.values())
 
-    def configure_display(self, identity, width, height, refresh, x, y, *, guard=None, creation_baseline=None):
+    def configure_display(self, identity, width, height, refresh, x, y, *, guard=None,
+                          creation_baseline=None, owned_baseline=None, captured_baseline=None):
         self.configure_calls.append((identity, width, height, refresh, x, y))
         self.guards.append(guard)
         self.creation_baselines.append(creation_baseline)
+        self.owned_baselines.append(owned_baseline)
         if self.before_configure:
             self.before_configure()
         if guard is not None and not guard():
@@ -199,6 +221,34 @@ class ManagedMonitorTests(unittest.TestCase):
         self.assertEqual(self.driver.remove_calls, [])
         self.assertEqual(self.layout.configure_calls, [])
         self.assertIn(key(identity), self.layout.screens)
+        self.assert_unrelated_unchanged()
+
+    def test_opt_in_two_monitor_creation_passes_owned_and_full_baselines(self):
+        record, identity = self.seed()
+        existing = self.layout.screens[key(identity)]
+        record["last_observed"] = {
+            "device": existing.device, "x": existing.x, "y": existing.y,
+            "width": existing.width, "height": existing.height,
+            "refresh_hz": existing.refresh_hz, "primary": existing.primary,
+        }
+        record["driver_path"] = self.driver.device_path
+        self.store.save([record])
+        with patch.dict(os.environ, {"VIRTUMON_EXPERIMENTAL_MULTI": "1"}):
+            row = self.manager.create(request("chat", side="right", anchor="work", width=1080, height=1920))
+        self.assertEqual(row["status"], "active")
+        self.assertEqual((row["x"], row["y"], row["width"], row["height"]), (existing.x + existing.width, existing.y, 1080, 1920))
+        self.assertEqual(self.layout.capture_calls, [[self.physical, self.unrelated, existing]])
+        self.assertEqual(self.layout.owned_baselines, [[existing]])
+        self.assertEqual(len(self.store.load()), 2)
+        self.assert_unrelated_unchanged()
+
+    def test_opt_in_rejects_stale_or_unverified_existing_identity_without_add(self):
+        self.seed()
+        with patch.dict(os.environ, {"VIRTUMON_EXPERIMENTAL_MULTI": "1"}):
+            with self.assertRaisesRegex(OperationError, "changed since it was created"):
+                self.manager.create(request("chat"))
+        self.assertEqual(self.driver.add_calls, [])
+        self.assertEqual(self.layout.capture_calls, [])
         self.assert_unrelated_unchanged()
 
     def test_failed_native_discovery_lists_degraded_managed_monitor_without_fabricated_geometry(self):
@@ -540,14 +590,67 @@ class ManagedMonitorTests(unittest.TestCase):
         self.assertEqual([item["id"] for item in self.store.load()], [OWNED_ID])
 
     def test_named_removal_uses_exact_guid_and_deduplicates_names(self):
-        self.seed()
-        second, second_identity = self.seed("chat", SECOND_ID, target=9)
+        self._seed_verified_pair()
+        second_identity = NativeIdentity(77, -2, 9)
+        second = self.store.load()[1]
         result = self.manager.remove(["WORK", "work"])
         self.assertEqual(result, {"removed": ["work"], "errors": []})
+        self.assertEqual(len(self.layout.restore_calls), 1)
+        self.assertEqual(self.layout.restore_calls[0][0], self.layout.screens[key(second_identity)])
         self.assertEqual(self.driver.remove_calls, [OWNED_ID])
         self.assertEqual(self.store.load(), [second])
         self.assertIn(key(second_identity), self.layout.screens)
         self.assert_unrelated_unchanged()
+
+    def _seed_verified_pair(self):
+        entries = [self.seed(), self.seed("chat", SECOND_ID, target=9)]
+        for item, ident in entries:
+            display = self.layout.screens[key(ident)]
+            item["last_observed"] = {
+                field: getattr(display, field) for field in
+                ("device", "x", "y", "width", "height", "refresh_hz", "primary")
+            }
+            item["driver_path"] = self.driver.device_path
+        self.store.save([item for item, _ in entries])
+        return entries
+
+    def test_selective_removal_requires_valid_preflight_before_native_change(self):
+        self._seed_verified_pair()
+        self.layout.capture_creation_baseline = lambda _before: (_ for _ in ()).throw(
+            OperationError("native source changed")
+        )
+        result = self.manager.remove(["chat"])
+        self.assertEqual(result["removed"], [])
+        self.assertIn("before changing the driver", result["errors"][0]["error"])
+        self.assertEqual(self.driver.remove_calls, [])
+        self.assertEqual(len(self.store.load()), 2)
+
+    def test_selective_removal_reports_failed_survivor_restore_and_retains_its_uuid(self):
+        self._seed_verified_pair()
+        self.layout.restore_error = RuntimeError("Windows re-cloned the remaining source")
+        result = self.manager.remove(["chat"])
+        self.assertEqual(result["removed"], ["chat"])
+        self.assertEqual([item["name"] for item in self.store.load()], ["work"])
+        self.assertEqual(len(result["errors"]), 1)
+        self.assertIn("could not be verified/restored", result["errors"][0]["error"])
+        self.assertIn("remove work", result["errors"][0]["error"])
+        saved = self.store.load()[0]
+        self.assertIn("Windows re-cloned", saved["error"])
+        self.assertIn(saved["id"], self.driver.native)
+        self.assertEqual(self.driver.remove_calls, [SECOND_ID])
+        report = self.store.directory / "diagnostics" / f"remove-{SECOND_ID}.json"
+        self.assertTrue(report.exists())
+
+    def test_selective_removal_failure_does_not_prevent_final_exact_uuid_cleanup(self):
+        self._seed_verified_pair()
+        self.layout.restore_error = RuntimeError("survivor re-cloned")
+        result = self.manager.remove(["chat"])
+        self.assertEqual(result["removed"], ["chat"])
+        self.layout.restore_error = None
+        cleanup = self.manager.remove(["work"])
+        self.assertEqual(cleanup, {"removed": ["work"], "errors": []})
+        self.assertEqual(self.driver.remove_calls, [SECOND_ID, OWNED_ID])
+        self.assertEqual(self.store.load(), [])
 
     def test_remove_refuses_a_different_driver_without_clearing_record(self):
         original, identity = self.seed(driver_path=self.driver.device_path)

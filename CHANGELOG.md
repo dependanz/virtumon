@@ -1,5 +1,29 @@
 # Changelog
 
+## Experimental multi-monitor branch (unreleased)
+
+- Add opt-in `VIRTUMON_EXPERIMENTAL_MULTI=1` for a guarded two-monitor
+  reconciliation. Capture original CCD/GDI metadata before adding the second
+  monitor. If the first owned monitor is displaced, validate a single supplied
+  display configuration that restores all owned outputs and preserves all
+  non-owned modes, followed by independent GDI and real signal readback.
+- On removal of one of two managed monitors, capture and verify the
+  pre-removal desktop. If Windows turns the remaining output into a
+  clone, apply a guarded target-only CCD correction and verify exact
+  surviving UUID identity, independent GDI attachment, and actual signal
+  timing. If it cannot be safely repaired, report a partial failure
+  with a diagnostic rather than silently claiming success.
+- The default one-at-a-time safety block remains in place.
+- The [native two-monitor lifecycle acceptance](docs/windows-acceptance-2026-11-08.md)
+  passed on Windows 11: both outputs survived beyond the watchdog, exact-name
+  removal of `chat` preserved `work`'s UUID and position after five seconds,
+  and final removal of `work` stopped the keeper cleanly.
+- A separate [Chrome Remote Desktop acceptance report](docs/windows-crd-acceptance-2026-11-08.md)
+  recorded user-reported PASS for all five checks: three displays visible,
+  interactive `work` and `chat` screens, display switching, and disconnect/reconnect.
+- Longer-duration stability, sleep/resume, keeper restart, reconnect after
+  OS changes and mixed-hardware compatibility remain unverified.
+
 ## 0.2.0a1 - Unreleased Windows preview
 
 - Named `create` and `remove` commands backed by SudoVDA's per-monitor GUID interface.

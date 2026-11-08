@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import os
 import re
 import threading
 import time
@@ -179,11 +180,14 @@ class MonitorManager:
             # even though the new display briefly appears independently.
             # Until one guarded CCD transaction can reconcile ALL owned
             # displays, refuse to mutate a nonempty managed layout.
-            if records:
+            experimental_multi = bool(records and os.environ.get("VIRTUMON_EXPERIMENTAL_MULTI") == "1")
+            if records and (not experimental_multi or len(records) > 1):
                 raise OperationError(
                     "Creating a second virtumon is temporarily unavailable in this preview: "
                     "Windows can displace an existing virtual monitor while adding another. "
-                    "Remove the existing virtumon before creating a new one."
+                    "Remove the existing virtumon before creating a new one. "
+                    "Experimental two-display reconciliation requires VIRTUMON_EXPERIMENTAL_MULTI=1 "
+                    "in the keeper's environment."
                 )
             health = self.health.snapshot()
             if health["error"]:
@@ -194,6 +198,29 @@ class MonitorManager:
             if any(x < item.x + item.width and x + request["width"] > item.x and
                    y < item.y + item.height and y + request["height"] > item.y for item in before):
                 raise OperationError("The requested position overlaps an existing display. Choose an outer edge of the desktop.")
+            multi_options = {}
+            if experimental_multi:
+                owned_before = []
+                for previous in records:
+                    if not self._current(previous) or previous.get("identity") is None:
+                        raise OperationError("A managed monitor has stale ownership; cannot add a second display.")
+                    ident = previous["identity"]
+                    key = ident["adapter_low"], ident["adapter_high"], ident["target_id"]
+                    matches = [item for item in before if display_key(item) == key]
+                    if len(matches) != 1:
+                        raise OperationError("A managed monitor is not independently attached; refusing another add.")
+                    display = matches[0]
+                    saved = previous.get("last_observed")
+                    if (saved is None or
+                            (display.device, display.x, display.y, display.width, display.height,
+                             display.primary) !=
+                            tuple(saved[field] for field in
+                                  ("device", "x", "y", "width", "height", "primary")) or
+                            abs(display.refresh_hz - saved["refresh_hz"]) > 0.02):
+                        raise OperationError("An existing virtumon changed since it was created; refusing another add.")
+                    owned_before.append(display)
+                capture = self.layout.capture_creation_baseline(before)
+                multi_options = {"owned_baseline":owned_before, "captured_baseline":capture}
             record = {key: request[key] for key in ("name", "width", "height", "refresh_hz")}
             record.update(id=str(uuid.uuid4()), backend="sudovda", identity=None,
                           session_id=self.session_id, generation=health["generation"])
@@ -204,6 +231,10 @@ class MonitorManager:
             phase = "driver-add"
             try:
                 with self.driver_factory() as driver:
+                    if experimental_multi and any(
+                            prior.get("driver_path") != driver.device_path for prior in records
+                            if prior["id"] != record["id"]):
+                        raise OperationError("An existing virtumon belongs to a different driver; refusing another add.")
                     record["driver_path"] = driver.device_path
                     self.store.save(records)
                     attempted = True
@@ -217,7 +248,7 @@ class MonitorManager:
                 display = self.layout.configure_display(identity, record["width"], record["height"],
                                                         record["refresh_hz"], *position,
                                                         guard=lambda: self._current(record),
-                                                        creation_baseline=before)
+                                                        creation_baseline=before, **multi_options)
                 phase = "verify-created-display"
                 after = self.layout.list_native_displays()
                 by_key = {display_key(item): item for item in after}
@@ -313,11 +344,58 @@ class MonitorManager:
                     raise OperationError("Unknown virtumon name(s): " + ", ".join(missing))
             selected = list(by_name) if all_monitors else list(dict.fromkeys(name.casefold() for name in names))
             result = {"removed": [], "errors": []}
+            keep = [record for record in records if record["name"].casefold() not in selected]
+            preservation = None
+            # With two managed monitors, removing only one must also verify
+            # (and if necessary reattach) the other. No unverified preflight
+            # may authorize a selective native driver mutation.
+            if len(records) == 2 and len(selected) == 1 and len(keep) == 1:
+                survivor = keep[0]
+                try:
+                    if not all(self._current(item) and item.get("identity") and
+                               item.get("last_observed") for item in records):
+                        raise OperationError("Both managed monitors must have current, verified ownership.")
+                    before = self.layout.list_native_displays()
+                    by_key = {display_key(item): item for item in before}
+                    if len(by_key) != len(before):
+                        raise OperationError("Windows returned duplicate target identities.")
+                    for existing in records:
+                        ident = existing["identity"]
+                        key = ident["adapter_low"], ident["adapter_high"], ident["target_id"]
+                        display = by_key.get(key)
+                        saved = existing["last_observed"]
+                        if (display is None or
+                                (display.device, display.x, display.y, display.width,
+                                 display.height, display.primary) !=
+                                tuple(saved[field] for field in
+                                      ("device", "x", "y", "width", "height", "primary")) or
+                                abs(display.refresh_hz - saved["refresh_hz"]) > 0.02):
+                            raise OperationError(
+                                f"Managed monitor '{existing['name']}' does not match its saved layout."
+                            )
+                    captured = self.layout.capture_creation_baseline(before)
+                    preserved_key = (
+                        survivor["identity"]["adapter_low"],
+                        survivor["identity"]["adapter_high"],
+                        survivor["identity"]["target_id"],
+                    )
+                    preservation = (by_key[preserved_key], before, captured)
+                except Exception as exc:
+                    result["errors"].append({
+                        "name": by_name[selected[0]]["name"],
+                        "error": "Selective removal was refused before changing the driver: " +
+                                 str(exc) +
+                                 ". Remove both owned monitors together if cleanup is required.",
+                    })
+                    return result
+
             for name in selected:
                 record = by_name[name]
                 try:
                     with self.driver_factory() as driver:
                         self._check_driver_path(record, driver)
+                        if preservation is not None:
+                            self._check_driver_path(keep[0], driver)
                         removed = driver.remove(record["id"])
                     # Old target IDs may have been reused. The GUID is authoritative;
                     # only verify target disappearance for a current, healthy mapping.
@@ -328,7 +406,57 @@ class MonitorManager:
                     result["removed"].append(record["name"])
                 except Exception as exc:
                     result["errors"].append({"name": record["name"], "error": str(exc)})
+                    continue
+                if preservation is not None:
+                    survivor = keep[0]
+                    try:
+                        previous_display, previous_desktop, captured = preservation
+                        self.layout.restore_after_removal(
+                            previous_display, previous_desktop, captured,
+                            SimpleNamespace(**record["identity"]),
+                            guard=lambda: self._current(survivor),
+                        )
+                    except Exception as exc:
+                        detail = (
+                            f"'{record['name']}' was removed, but surviving monitor "
+                            f"'{survivor['name']}' could not be verified/restored: {exc}"
+                        )
+                        diagnostic = self._save_removal_diagnostic(
+                            exc, record, survivor, previous_desktop,
+                        )
+                        survivor["error"] = detail
+                        self.store.save(records)
+                        result["errors"].append({
+                            "name": record["name"], "error": detail + diagnostic +
+                            f". Recover with: virtumon remove {survivor['name']}",
+                        })
             return result
+
+    def _save_removal_diagnostic(self, error, removed, survivor, before) -> str:
+        try:
+            path = self.store.directory / "diagnostics" / f"remove-{removed['id']}.json"
+            fields = ("device", "x", "y", "width", "height", "refresh_hz", "primary",
+                      "adapter_low", "adapter_high", "target_id")
+            write_json(path, {
+                "schema": "virtumon.remove-diagnostic/v1",
+                "version": __version__,
+                "recorded_at_utc": datetime.now(timezone.utc).isoformat(),
+                "error": str(error),
+                "removed_monitor": {"name": removed["name"], "id": removed["id"],
+                                    "identity": removed.get("identity")},
+                "survivor": {"name": survivor["name"], "id": survivor["id"],
+                             "identity": survivor.get("identity"),
+                             "last_observed": survivor.get("last_observed")},
+                "before_removal": [
+                    {field: getattr(item, field) for field in fields} for item in before
+                ],
+                "native_metadata": getattr(error, "diagnostics", None),
+                "note": "Removal of the selected UUID was confirmed; this report does not "
+                        "establish that the survivor was restored.",
+            })
+            return f". Diagnostic report: {path}"
+        except Exception as diagnostic_exc:
+            return f". Diagnostic report could not be saved: {diagnostic_exc}"
 
 
 def offline_rows(store: StateStore) -> list[dict]:

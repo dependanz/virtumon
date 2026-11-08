@@ -13,6 +13,73 @@ of all managed paths. If the first display has already become cloned,
 `list --managed` reports an explicit error record rather than failing entirely;
 `remove NAME` still uses the saved UUID and can clean up the displaced monitor.
 
+## Experimental two-display reconciliation (separate branch)
+
+The guarded multi-monitor implementation is isolated on
+`feature/windows-multi-monitor-reconcile` and is **not enabled by default**.
+The normal `feature/windows-virtual-monitors` branch continues to block a
+second monitor. The experiment now has a [passing native two-monitor lifecycle test](windows-acceptance-2026-11-08.md)
+and a subsequent [user-reported 5/5 Chrome Remote Desktop acceptance](windows-crd-acceptance-2026-11-08.md).
+Neither result establishes long-duration stability, recovery after OS sleep,
+or compatibility on other hardware.
+
+The test must start with **zero managed monitors and a stopped agent**. In
+the normal desktop PowerShell session, set the variable *before the first*
+`create` so that the detached keeper inherits it:
+
+```powershell
+$env:VIRTUMON_EXPERIMENTAL_MULTI = '1'
+virtumon create work --resolution 1920x1080 --refresh 60 --right-of primary
+virtumon create chat --resolution 1080x1920 --refresh 60 --right-of work
+```
+
+The second creation captures exact pre-add CCD/GDI metadata and the
+previously managed target identity, then checks that all active targets are
+either known baseline targets or the newly created driver target. Only when
+Windows has the verified displaced-monitor arrangement does Virtumon
+prepare **one supplied CCD transaction** that restores `work` and places
+`chat` together. It preserves non-owned source/target/desktop-image modes,
+validates the complete supplied configuration, rechecks the live topology
+and heartbeat, then applies and verifies both owned signal modes and
+independent GDI monitor-interface associations.
+
+**This is a hardware experiment, not a repair guarantee.** A native Windows
+11 run confirmed that two outputs can be created, remain independent for
+five seconds, and be viewed via Windows display enumeration. However,
+removing one output caused the other to become cloned onto the physical
+desktop. The experimental branch now attempts a *separate guarded
+post-removal repair*: with two verified managed records it captures
+pre-removal source and signal modes, removes the exact requested GUID,
+then checks that the remaining output still has its original mode, target
+identity, source, and monitor interface. If Windows re-clones it onto a
+known non-owned display, only that surviving owned target's CCD modes are
+adjusted using a validated supplied configuration. A physical display
+change blocks the repair. The removed UUID is journaled as removed even
+if survivor reattachment fails; the error identifies the surviving
+record and saves a local removal diagnostic.
+
+A [native Windows 11 two-monitor lifecycle test](windows-acceptance-2026-11-08.md)
+now passed for the revised removal repair: `work` and `chat` were independently
+attached for five seconds, removing `chat` retained the same live `work`
+identity and geometry after another five seconds, and removing `work` succeeded.
+The captured output does not identify whether the survivor required the
+reattachment branch or remained independent without intervention. Other GPU
+and driver configurations still need verification. The driver may
+alter the existing desktop as soon as it removes one monitor, before
+Virtumon can reattach the survivor. If the repair fails, remove the
+remaining named monitor by its UUID and verify that the physical
+desktop is intact. Never delete ownership records manually. Use a
+physical-screen fallback and do not change Windows Display Settings or
+run another SudoVDA controller during the test.
+If `work` is displaced, remove it by exact name, confirm the desktop
+returns to the physical display, and stop the agent before changing
+installations. Do not delete ownership state files manually.
+
+The current experiment supports **one existing managed monitor plus one
+new monitor**; a third creation remains blocked. The env variable is
+examined by the keeper, not the interactive CLI process. Setting it after
+the keeper starts will not enable the experiment.
+
 ## Prerequisites
 
 - Python 3.10 or newer and the installed Virtumon candidate wheel.

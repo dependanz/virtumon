@@ -46,11 +46,22 @@ guide before installing it.
 The preview requires exactly one enabled SudoVDA adapter and rejects multiple
 adapters. It records that adapter's device path with each managed monitor.
 A Windows 11 hardware test revealed that adding a second monitor can clone the
-first monitor onto the physical screen. Until the complete owned layout can be
-reconciled safely, **this preview allows only one managed monitor at a time**.
-Attempting another creation fails before calling the driver; `list --managed`
-still reports an existing monitor as an error if Windows display discovery
-becomes inconsistent. Exact-name removal remains available.
+first monitor onto the physical screen. The main preview therefore supports
+only one managed monitor at a time. A separate
+[`feature/windows-multi-monitor-reconcile` experimental branch](docs/windows-backend.md#experimental-two-display-reconciliation-separate-branch)
+has an opt-in guarded all-owned-target update. Two concurrent outputs have
+now been observed active through the SudoVDA watchdog on Windows 11, but
+removing either output can re-clone the surviving monitor onto the physical
+screen. The [selective-removal recovery path](docs/windows-acceptance-2026-11-08.md)
+now has a passing native Windows 11 test: two independently attached virtual
+screens stayed active after five seconds, removing `chat` preserved `work`
+with its original UUID and geometry, and the remaining output was removable.
+It captures the pre-removal layout and can reattach a verified owned clone
+while preserving non-owned CCD signal modes. The user subsequently reported a [5/5 Chrome Remote Desktop PASS](docs/windows-crd-acceptance-2026-11-08.md)
+for multi-display viewing, interaction with both virtual screens, display
+switching and reconnecting the remote client. Broader stability, sleep and host
+restart behavior still need validation.
+Exact-name removal always uses the recorded UUID.
 
 ```console
 virtumon create workspace --resolution 1920x1080 --refresh 60

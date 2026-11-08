@@ -12,8 +12,16 @@ creation works on the target machine.
 The [first native Windows acceptance result](docs/windows-acceptance-2026-11-07.md)
 passed on commit `fc6e197`: one 1280 x 720 monitor at 60 Hz, background lifetime
 beyond the watchdog interval, and removal preserving the original physical
-desktop. Concurrent monitors and the intended Chrome Remote Desktop workflow
-still need hardware observations before extending the validation claim.
+desktop. A separate [native two-monitor acceptance result](docs/windows-acceptance-2026-11-08.md)
+passed on experimental commit `8e1ffca`: two independent virtual desktops,
+five-second heartbeat, selective removal of `chat` preserving `work`, and clean
+removal/agent shutdown. This is a single machine/session verification;
+A separate [Chrome Remote Desktop acceptance report](docs/windows-crd-acceptance-2026-11-08.md)
+records the user's 5/5 PASS result for viewing all three screens, interacting
+with both virtual screens, switching displays and reconnecting the remote client.
+This is user-reported functional acceptance rather than independently captured
+client logs. Prolonged stability, sleep/resume, host/keeper restart and other
+hardware configurations remain unverified.
 
 Feature-branch and pull-request workflows build distributions and run tests;
 they do not publish. Manual publication through the workflow is limited to
