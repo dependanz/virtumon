@@ -36,15 +36,14 @@ class SelectiveRemovalTopologyTests(unittest.TestCase):
         self.survivor = next(item for item in self.before if W._key(item) == W._key(OWNED))
         self.physical = dict(self.api.screens[0])
         self._remove_chat_and_reclone_work()
-        from virtumon import windows_clone as C
-        original_physical = C._signature(self.captured[0],
-                                         exclude={W._key(OWNED), W._key(CHAT)})
-        current_physical = C._signature(self.api.snapshot(),
-                                        exclude={W._key(OWNED)})
-        def concise(sig):
-            return [[(len(x), x.hex()[:180]) if isinstance(x, bytes) else x
-                     for x in entry] for entry in sig]
-        self.assertEqual(concise(original_physical), concise(current_physical),
+        from virtumon.windows_removal import _physical_signature
+        original_physical = _physical_signature(
+            self.captured[0], {W._key(OWNED), W._key(CHAT)}
+        )
+        current_physical = _physical_signature(
+            self.api.snapshot(), {W._key(OWNED)}
+        )
+        self.assertEqual(original_physical, current_physical,
                          "Pre/post removal physical CCD fixture must have an unchanged signal.")
 
     def advance(self, dt):

@@ -20,7 +20,15 @@ def _active_keys(snapshot):
 
 
 def _physical_signature(snapshot, owned_keys):
-    return C._signature(snapshot, exclude=owned_keys)
+    # Clone signature's exclude argument accepts only one target key.
+    # Preserve every non-owned mode and its path order while filtering
+    # *all* managed targets from the before/after comparison.
+    nonowned = W._Snapshot(
+        [path for path in snapshot.paths if W._path_key(path) not in owned_keys],
+        snapshot.modes,
+        virtual_mode_aware=snapshot.virtual_mode_aware,
+    )
+    return C._signature(nonowned)
 
 
 def _check_physical_modes(snapshot, original, excluded_before, survivor_key):
