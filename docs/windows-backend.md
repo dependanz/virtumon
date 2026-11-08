@@ -56,7 +56,13 @@ change blocks the repair. The removed UUID is journaled as removed even
 if survivor reattachment fails; the error identifies the surviving
 record and saves a local removal diagnostic.
 
-**Removal repair is not yet native-hardware validated.** The driver may
+A [native Windows 11 two-monitor lifecycle test](windows-acceptance-2026-11-08.md)
+now passed for the revised removal repair: `work` and `chat` were independently
+attached for five seconds, removing `chat` retained the same live `work`
+identity and geometry after another five seconds, and removing `work` succeeded.
+The captured output does not identify whether the survivor required the
+reattachment branch or remained independent without intervention. Other GPU
+and driver configurations still need verification. The driver may
 alter the existing desktop as soon as it removes one monitor, before
 Virtumon can reattach the survivor. If the repair fails, remove the
 remaining named monitor by its UUID and verify that the physical

@@ -14,8 +14,12 @@
   timing. If it cannot be safely repaired, report a partial failure
   with a diagnostic rather than silently claiming success.
 - The default one-at-a-time safety block remains in place.
-- Hardware acceptance of survivor preservation after selective removal
-  is required before releasing this path.
+- The [native two-monitor lifecycle acceptance](docs/windows-acceptance-2026-11-08.md)
+  passed on Windows 11: both outputs survived beyond the watchdog, exact-name
+  removal of `chat` preserved `work`'s UUID and position after five seconds,
+  and final removal of `work` stopped the keeper cleanly.
+- Chrome Remote Desktop interaction, prolonged runtime, reconnection, sleep/
+  resume and mixed-hardware compatibility still require verification before release.
 
 ## 0.2.0a1 - Unreleased Windows preview
 

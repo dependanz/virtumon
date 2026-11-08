@@ -52,9 +52,13 @@ only one managed monitor at a time. A separate
 has an opt-in guarded all-owned-target update. Two concurrent outputs have
 now been observed active through the SudoVDA watchdog on Windows 11, but
 removing either output can re-clone the surviving monitor onto the physical
-screen. A new selective-removal recovery path is **not yet hardware
-validated**: it captures the original layout before UUID removal and can
-reattach a proven owned clone while preserving non-owned CCD signal modes.
+screen. The [selective-removal recovery path](docs/windows-acceptance-2026-11-08.md)
+now has a passing native Windows 11 test: two independently attached virtual
+screens stayed active after five seconds, removing `chat` preserved `work`
+with its original UUID and geometry, and the remaining output was removable.
+It captures the pre-removal layout and can reattach a verified owned clone
+while preserving non-owned CCD signal modes. Broader stability and Chrome
+Remote Desktop interaction still need validation.
 Exact-name removal always uses the recorded UUID.
 
 ```console
