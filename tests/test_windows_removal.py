@@ -82,15 +82,19 @@ class SelectiveRemovalTopologyTests(unittest.TestCase):
         self.assertEqual([v for _, v in self.api.ccd_calls], [True, False])
         self.assertEqual(len(W._records(self.api, self.api.snapshot())), 2)
         self.assertFalse(self.api.calls)
+        from virtumon.windows_removal import _physical_signature
+        physical_before = _physical_signature(
+            self.captured[0], {W._key(OWNED), W._key(CHAT)}
+        )
         for proposal, _validate in self.api.ccd_calls:
             self.assertEqual(W._path_key(proposal.paths[1]), W._key(OWNED))
-            original = self.captured[0]
-            for index in (
-                original.paths[0].sourceInfo.modeInfoIdx >> 16,
-                original.paths[0].targetInfo.modeInfoIdx >> 16,
-                original.paths[0].targetInfo.modeInfoIdx & 0xFFFF,
-            ):
-                self.assertEqual(bytes(proposal.modes[index]), bytes(original.modes[index]))
+            # The removal topology contains fewer mode entries than the
+            # three-display capture. Compare exact non-owned mode *content*
+            # by path identity, never unrelated array index numbers.
+            self.assertEqual(
+                _physical_signature(proposal, {W._key(OWNED)}),
+                physical_before,
+            )
 
     def test_survivor_keeps_independent_mode_without_unnecessary_setdisplayconfig(self):
         self.api.screens[1].update(x=2560, y=0, width=1920, height=1080,
