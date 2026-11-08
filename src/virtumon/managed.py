@@ -10,6 +10,7 @@ from types import SimpleNamespace
 import uuid
 
 from . import __version__
+from .displays import DisplayDiscoveryError
 from .state import StateStore, write_json
 
 
@@ -150,7 +151,21 @@ class MonitorManager:
             records = self.store.load()
             if not records:
                 return []
-            displays = self.layout.list_native_displays()
+            try:
+                displays = self.layout.list_native_displays()
+            except DisplayDiscoveryError as exc:
+                # A display hotplug can re-clone an already managed virtual
+                # monitor onto the primary desktop. Keep the journal visible,
+                # but do not promote any saved identity to an active display.
+                rows = [self._row(record, []) for record in records]
+                for row in rows:
+                    prior = row.get("error")
+                    row.update(
+                        status="error", device=None, x=None, y=None, primary=False,
+                        error=("Windows display topology is inconsistent: " + str(exc) +
+                               (f"; previous error: {prior}" if prior else "")),
+                    )
+                return rows
             return [self._row(record, displays) for record in records]
 
     def create(self, request: dict) -> dict:
@@ -159,6 +174,17 @@ class MonitorManager:
             records = self.store.load()
             if any(record["name"].casefold() == request["name"].casefold() for record in records):
                 raise OperationError(f"A virtumon named '{request['name']}' already exists. Remove it before reusing the name.")
+            # Observed on Windows 11: the driver's second AddMonitor call
+            # can re-clone the first virtual display onto the physical screen,
+            # even though the new display briefly appears independently.
+            # Until one guarded CCD transaction can reconcile ALL owned
+            # displays, refuse to mutate a nonempty managed layout.
+            if records:
+                raise OperationError(
+                    "Creating a second virtumon is temporarily unavailable in this preview: "
+                    "Windows can displace an existing virtual monitor while adding another. "
+                    "Remove the existing virtumon before creating a new one."
+                )
             health = self.health.snapshot()
             if health["error"]:
                 raise OperationError("Driver heartbeat is unavailable: " + health["error"])

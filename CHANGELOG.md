@@ -28,6 +28,11 @@
   cloned desktop. Document the remaining race with external display changes.
 - Avoid polling a stale native target during creation cleanup after ownership
   continuity is lost; removal still addresses the journaled monitor UUID.
+- Mitigate a confirmed multi-monitor regression: adding a second SudoVDA
+  monitor displaced the first into a clone of the physical screen. Temporarily
+  block second-monitor creation before driver mutation until complete topology
+  reconciliation is implemented. Managed listing now reports degraded ownership
+  records rather than failing when Windows GDI discovery is inconsistent.
 - Record the first successful [native Windows acceptance run](docs/windows-acceptance-2026-11-07.md):
   one 1280 x 720 monitor at 60 Hz, active beyond the driver watchdog interval,
   and selective removal with the original physical desktop preserved.

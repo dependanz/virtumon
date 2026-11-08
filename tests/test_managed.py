@@ -12,6 +12,7 @@ from unittest.mock import patch
 import uuid
 
 from virtumon.backends.sudovda import NativeIdentity
+from virtumon.displays import DisplayDiscoveryError
 from virtumon.managed import Health, MonitorManager, OperationError, offline_rows
 from virtumon.state import StateError, StateStore
 
@@ -186,6 +187,40 @@ class ManagedMonitorTests(unittest.TestCase):
     def assert_unrelated_unchanged(self):
         self.assertEqual(self.layout.screens[key(self.physical)], self.physical)
         self.assertEqual(self.layout.screens[key(self.unrelated)], self.unrelated)
+
+    def test_existing_managed_monitor_blocks_another_add_without_changes(self):
+        saved, identity = self.seed()
+        original = self.store.path.read_bytes()
+        with self.assertRaisesRegex(OperationError, "Creating a second virtumon is temporarily unavailable"):
+            self.manager.create(request("chat"))
+        self.assertEqual(self.store.load(), [saved])
+        self.assertEqual(self.store.path.read_bytes(), original)
+        self.assertEqual(self.driver.add_calls, [])
+        self.assertEqual(self.driver.remove_calls, [])
+        self.assertEqual(self.layout.configure_calls, [])
+        self.assertIn(key(identity), self.layout.screens)
+        self.assert_unrelated_unchanged()
+
+    def test_failed_native_discovery_lists_degraded_managed_monitor_without_fabricated_geometry(self):
+        saved, _identity = self.seed()
+        with patch.object(self.layout, "list_native_displays",
+                          side_effect=DisplayDiscoveryError("DISPLAY28 is cloned")):
+            rows = self.manager.list_managed()
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["id"], saved["id"])
+        self.assertEqual(rows[0]["name"], "work")
+        self.assertEqual(rows[0]["status"], "error")
+        self.assertIsNone(rows[0]["device"])
+        self.assertIsNone(rows[0]["x"])
+        self.assertIsNone(rows[0]["y"])
+        self.assertFalse(rows[0]["primary"])
+        self.assertIn("DISPLAY28 is cloned", rows[0]["error"])
+        self.assertEqual(self.driver.add_calls, [])
+        self.assertEqual(self.driver.remove_calls, [])
+        # The still-owned monitor is removable by its UUID, not by GDI source.
+        self.assertEqual(self.manager.remove(["work"]), {"removed": ["work"], "errors": []})
+        self.assertEqual(self.driver.remove_calls, [saved["id"]])
+        self.assert_unrelated_unchanged()
 
     def test_create_journals_uuid_before_native_mutation_and_then_verifies(self):
         journal_observations = []

@@ -4,7 +4,14 @@ This document describes the **unreleased Virtumon 0.2.0a1 candidate**. The
 published 0.1.0 package only provides display discovery. A
 [native Windows 11 create/list/heartbeat/remove cycle](windows-acceptance-2026-11-07.md)
 has passed. Concurrent monitors and the intended remote-desktop workflow remain
-the next hardware checks.
+the next hardware checks. A subsequent two-monitor experiment found that
+adding `chat` made Windows re-clone the existing `work` monitor onto the
+physical screen while `chat` appeared independently at `work`'s old
+position. Removing `chat` did not restore `work`. This candidate therefore
+fails closed on attempts to create a second monitor, pending atomic reconciliation
+of all managed paths. If the first display has already become cloned,
+`list --managed` reports an explicit error record rather than failing entirely;
+`remove NAME` still uses the saved UUID and can clean up the displaced monitor.
 
 ## Prerequisites
 
