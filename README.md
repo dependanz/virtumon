@@ -57,8 +57,10 @@ now has a passing native Windows 11 test: two independently attached virtual
 screens stayed active after five seconds, removing `chat` preserved `work`
 with its original UUID and geometry, and the remaining output was removable.
 It captures the pre-removal layout and can reattach a verified owned clone
-while preserving non-owned CCD signal modes. Broader stability and Chrome
-Remote Desktop interaction still need validation.
+while preserving non-owned CCD signal modes. The user subsequently reported a [5/5 Chrome Remote Desktop PASS](docs/windows-crd-acceptance-2026-11-08.md)
+for multi-display viewing, interaction with both virtual screens, display
+switching and reconnecting the remote client. Broader stability, sleep and host
+restart behavior still need validation.
 Exact-name removal always uses the recorded UUID.
 
 ```console
