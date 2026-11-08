@@ -143,6 +143,22 @@ The package has no third-party Python runtime dependencies. Color is enabled
 only for a compatible interactive terminal; set `NO_COLOR=1` for plain output.
 JSON output is separate from the banner and diagnostic text.
 
+## Roadmap and Windows reliability testing
+
+See the [0.2 release gates and native reliability runner](docs/roadmap.md) and
+the [proposed cross-platform monitor API](docs/architecture.md). The reliability
+runner is **read-only by default** and requires explicit `--exercise` before it
+creates any displays. Hardware tests must run locally, not in hosted CI:
+
+```powershell
+$env:VIRTUMON_EXPERIMENTAL_MULTI = '1'
+& 'C:\Users\Danze\anaconda3\python.exe' .\tools\reliability_windows.py --exercise --cycles 3 --soak-seconds 30
+```
+
+It refuses an existing keeper or managed display, uses generated names, checks
+both Windows and Virtumon display records, and saves a local diagnostic receipt.
+Long-duration and recovery acceptance remain unverified.
+
 ## Development
 
 ```console

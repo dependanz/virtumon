@@ -18,11 +18,8 @@
   passed on Windows 11: both outputs survived beyond the watchdog, exact-name
   removal of `chat` preserved `work`'s UUID and position after five seconds,
   and final removal of `work` stopped the keeper cleanly.
-- A separate [Chrome Remote Desktop acceptance report](docs/windows-crd-acceptance-2026-11-08.md)
-  recorded user-reported PASS for all five checks: three displays visible,
-  interactive `work` and `chat` screens, display switching, and disconnect/reconnect.
-- Longer-duration stability, sleep/resume, keeper restart, reconnect after
-  OS changes and mixed-hardware compatibility remain unverified.
+- Chrome Remote Desktop interaction, prolonged runtime, reconnection, sleep/
+  resume and mixed-hardware compatibility still require verification before release.
 
 ## 0.2.0a1 - Unreleased Windows preview
 

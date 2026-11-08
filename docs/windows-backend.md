@@ -18,10 +18,8 @@ of all managed paths. If the first display has already become cloned,
 The guarded multi-monitor implementation is isolated on
 `feature/windows-multi-monitor-reconcile` and is **not enabled by default**.
 The normal `feature/windows-virtual-monitors` branch continues to block a
-second monitor. The experiment now has a [passing native two-monitor lifecycle test](windows-acceptance-2026-11-08.md)
-and a subsequent [user-reported 5/5 Chrome Remote Desktop acceptance](windows-crd-acceptance-2026-11-08.md).
-Neither result establishes long-duration stability, recovery after OS sleep,
-or compatibility on other hardware.
+second monitor. This experimental version has synthetic topology tests but has
+**not** passed a real two-monitor Windows hardware run.
 
 The test must start with **zero managed monitors and a stopped agent**. In
 the normal desktop PowerShell session, set the variable *before the first*
