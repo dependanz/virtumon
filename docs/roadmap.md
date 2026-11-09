@@ -19,6 +19,10 @@ from simulated CI tests.
 - [M2 25-cycle native repetition acceptance](windows-m2-repetition-2026-11-08.md):
   **audited PASS** (25/25, 60-second soak each), including 50 unique
   owned UUIDs, survivor continuity and restored physical baseline.
+- [M2 one-hour duration attempt](windows-m2-duration-startup-failure-2026-11-09.md):
+  **failed before soak** during creation of the second virtual monitor.
+  Diagnostic and cleanup receipt review pending. This blocks claiming the
+  sustained-duration gate and warrants intermittent hotplug investigation.
 - Sustained duration, sleep/reboot recovery, alternate GPU stacks, third
   monitor, Linux and macOS: not yet accepted.
 
