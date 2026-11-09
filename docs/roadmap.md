@@ -16,8 +16,10 @@ from simulated CI tests.
 - [M2 three-cycle Windows reliability smoke](windows-m2-smoke-2026-11-08.md):
   PASS (3/3, 30-second soak each), independently corroborated by the
   uploaded structured receipt's event sequence and cleanup-baseline result.
-- Extended repetition/duration, sleep/reboot recovery, alternate GPU stacks,
-  third monitor, Linux and macOS: not yet accepted.
+- [M2 25-cycle native repetition acceptance](windows-m2-repetition-2026-11-08.md):
+  console-confirmed PASS (25/25, 60-second soak each); JSON receipt audit pending.
+- Sustained duration, sleep/reboot recovery, alternate GPU stacks, third
+  monitor, Linux and macOS: not yet accepted.
 
 ## Windows 0.2.0 release gates
 
@@ -64,7 +66,9 @@ Suggested staged acceptance:
 | Duration | 1 | 3600 seconds | Remote interaction and repeated client reconnect |
 | Recovery | Separate manual protocol | N/A | Watchdog/agent/sleep events require separate precautions |
 
-These are targets, not passed tests. Do not start the next stage until
+The smoke stage has a verified receipt. The 25-cycle repetition stage has
+completed successfully in console output, but its JSON receipt has not yet
+been uploaded or audited. Do not start the one-hour duration stage until
 the previous stage has a verified native receipt and clean physical baseline.
 If the process is forcibly terminated, inspect the state before cleanup;
 remove ONLY the test-generated names. Do not delete ownership files.

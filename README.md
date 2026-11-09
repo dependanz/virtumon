@@ -146,8 +146,9 @@ JSON output is separate from the banner and diagnostic text.
 ## Roadmap and Windows reliability testing
 
 The [first native M2 reliability smoke](docs/windows-m2-smoke-2026-11-08.md)
-reported three successful two-monitor lifecycle cycles. The generated receipt
-still requires review before escalating to longer tests.
+passed three cycles with an audited receipt. The follow-up
+[25-cycle repetition run](docs/windows-m2-repetition-2026-11-08.md) completed
+25/25 cycles in console output; its JSON receipt remains to be audited.
 
 See the [0.2 release gates and native reliability runner](docs/roadmap.md) and
 the [proposed cross-platform monitor API](docs/architecture.md). The reliability
