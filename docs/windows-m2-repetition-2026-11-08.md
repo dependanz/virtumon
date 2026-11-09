@@ -1,11 +1,12 @@
 # Native Windows M2 reliability repetition acceptance — 2026-11-08
 
-**Result: 25/25 cycles PASS, confirmed by user-supplied PowerShell console output.**
+**Result: audited PASS — all 25 cycles and final cleanup confirmed by console and uploaded structured JSON receipt.**
 
-The `reliability_windows.py` runner's detailed JSON receipt has **not yet been
-uploaded or independently audited**. This document records the exact scope
-of the supplied transcript and does not claim the longer duration or failure
-recovery gates are complete.
+The user supplied the native Windows 11 PowerShell transcript and subsequently
+uploaded the exact `reliability_windows.py` JSON receipt. Its event sequence,
+UUID continuity, timing and cleanup were audited. This is a successful
+repetition test on one machine, **not** a continuous one-hour run or an
+OS/driver failure-recovery test.
 
 ## Configuration and preflight
 
@@ -37,8 +38,11 @@ The reported local evidence path is:
 C:\Users\Danze\AppData\Local\Virtumon\diagnostics\reliability-de8540864fad460ab34976112035082a.json
 ```
 
-This filename establishes the saved receipt location, **not** the uninspected
-receipt's `result`, timestamps or internal event counts.
+The complete receipt was subsequently uploaded and audited. It records
+`schema=virtumon.reliability-acceptance/v1`, run ID
+`de8540864fad460ab34976112035082a`, `exercise=true`,
+`result=pass`, installed version `virtumon 0.2.0a1`, and the configured
+25 cycles, 60-second soak and five-second poll interval.
 
 ## Interpretation
 
@@ -57,23 +61,58 @@ On that basis, the console confirms:
 - **25 minutes of configured two-monitor soak**, split across 25 sessions
 - **No reported cycle failure or PowerShell nonzero-exit exception**
 
+## Structured receipt audit
+
+The uploaded receipt contains **127 events** in the expected order.
+
+| Event phase | Count |
+| --- | ---: |
+| `preflight-passed` | 1 |
+| `created-work` | 25 |
+| `created-chat` | 25 |
+| `soak-passed` | 25 |
+| `selective-remove-passed` | 25 |
+| `cycle-passed` | 25 |
+| `cleanup-baseline-restored` | 1 |
+| Failure or cleanup-error events | **0** |
+
+Each numbered cycle includes exactly five ordered phases: work creation,
+chat creation, soak pass, survivor-preserving selective removal, and cycle
+pass. Every `selective-remove-passed` survivor name and UUID agrees with
+that cycle's `created-work` event. There are **50 distinct monitor UUIDs**
+across the 50 creations, and **50 distinct generated names**. No missing
+cycle, duplicated UUID, mismatched survivor or failure event was found.
+
+The first recorded event phase confirms one physical primary
+`DISPLAY1`, 2560×1600 at (0,0), zero saved managed monitors, and a
+stopped agent. The last event is `cleanup-baseline-restored`, followed by
+`result=pass`. The receipt does not include an independent post-run CLI
+snapshot; this cleanup status is the runner's verified outcome.
+
+The execution started `2026-11-09T01:12:05.443330+00:00` and finished
+`2026-11-09T01:44:04.716554+00:00`, a total of **1,919.273 seconds
+(31 min 59.3 sec)** including setup, verification and cleanup. The
+configured total two-output soak is **1,500 seconds (25 minutes)**,
+distributed across the 25 cycles; event timestamps show roughly 60.1–61.1
+seconds from each chat creation to its soak-pass event. The receipt
+records phase completion, not individual timestamped heartbeat polls.
+Heartbeat continuity is inferred from the passing runner checks, rather
+than measured directly from independent telemetry.
+
 The run does not constitute a continuous 25-minute two-monitor uptime
-test: the monitors are removed and recreated between cycles.
+test: the monitors were removed and recreated between cycles.
 
 ## Audit and remaining release gates
 
-**Receipt review pending:** verify `schema`, `exercise=true`,
-`result=pass`, configured 25 cycles/60 seconds/5-second poll interval,
-all 25 sets of create/soak/selective-removal/cycle-pass events, survivor
-UUID continuity, lack of failure/cleanup-error events, and terminal
-`cleanup-baseline-restored`. Request an independent read-only
-`list --managed --json`, `list --json`, and `agent status --json`
-before the next hardware test.
+**Receipt audit completed: PASS.** Before the next hardware exercise,
+confirm the current host state independently using read-only
+`list --managed --json`, `list --json`, and `agent status --json`.
+The next proposed stage is **one complete lifecycle with a continuous
+3,600-second (one-hour) two-monitor soak**, optionally checking Chrome
+Remote Desktop interactions and reconnects during that interval.
 
-If the JSON audit and clean baseline both pass, proceed to a **one-hour
-sustained two-monitor run**, with optional Chrome Remote Desktop interaction
-and reconnect checks. M3 host sleep/reboot, keeper/watchdog fault recovery,
-additional Windows GPUs, Linux and macOS remain unverified.
+The one-hour duration stage, M3 host sleep/reboot and keeper/watchdog
+recovery, additional Windows GPUs, Linux and macOS remain unverified.
 
 PR #3 and PR #4 remain drafts; no merge, tag, or PyPI release is authorized
-by this console result alone.
+by this single-machine repetition result alone.

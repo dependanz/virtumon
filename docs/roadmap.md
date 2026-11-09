@@ -17,7 +17,8 @@ from simulated CI tests.
   PASS (3/3, 30-second soak each), independently corroborated by the
   uploaded structured receipt's event sequence and cleanup-baseline result.
 - [M2 25-cycle native repetition acceptance](windows-m2-repetition-2026-11-08.md):
-  console-confirmed PASS (25/25, 60-second soak each); JSON receipt audit pending.
+  **audited PASS** (25/25, 60-second soak each), including 50 unique
+  owned UUIDs, survivor continuity and restored physical baseline.
 - Sustained duration, sleep/reboot recovery, alternate GPU stacks, third
   monitor, Linux and macOS: not yet accepted.
 
@@ -67,8 +68,8 @@ Suggested staged acceptance:
 | Recovery | Separate manual protocol | N/A | Watchdog/agent/sleep events require separate precautions |
 
 The smoke stage has a verified receipt. The 25-cycle repetition stage has
-completed successfully in console output, but its JSON receipt has not yet
-been uploaded or audited. Do not start the one-hour duration stage until
+completed successfully and its uploaded JSON receipt has passed the event,
+UUID and cleanup audit. Do not start the one-hour duration stage until
 the previous stage has a verified native receipt and clean physical baseline.
 If the process is forcibly terminated, inspect the state before cleanup;
 remove ONLY the test-generated names. Do not delete ownership files.
