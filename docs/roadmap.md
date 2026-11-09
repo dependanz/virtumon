@@ -13,7 +13,9 @@ from simulated CI tests.
 - Chrome Remote Desktop manual acceptance: user reported 5/5 passed, including
   window interaction on both virtual monitors and remote-client reconnect.
 - Experimental multi-monitor implementation remains in draft PR #3.
-- Long-running reliability, sleep/reboot recovery, alternate GPU stacks,
+- [M2 three-cycle Windows reliability smoke](windows-m2-smoke-2026-11-08.md):
+  console-confirmed PASS (3/3, 30-second soak each); receipt audit pending.
+- Extended repetition/duration, sleep/reboot recovery, alternate GPU stacks,
   third monitor, Linux and macOS: not yet accepted.
 
 ## Windows 0.2.0 release gates
