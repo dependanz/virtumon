@@ -83,15 +83,12 @@ lifecycle on one Windows machine. It does **not** establish all of the
 following:
 
 - Chrome Remote Desktop viewing and interactive mouse/keyboard input to
-  both monitors *during this specific CLI transcript*. A **separate, later
-  [remote-access acceptance report](windows-crd-acceptance-2026-11-08.md)**
-  records user-reported PASS for these behaviors and remote-client reconnect.
-- Extended runtime stability, wake/sleep, host/agent restart recovery,
+  both monitors *during this successful two-monitor run*.
+- Extended runtime stability, wake/sleep, reconnects, restart recovery,
   or concurrent use with other display controllers.
 - Different GPUs, scaling/DPI, arbitrary placement or resolution
   combinations, and third or subsequent virtual monitors.
 - Which internal CCD repair branch actually executed during removal.
 
-Remote interaction was subsequently reported as passed in a distinct test.
-Retain the draft experimental PR until broader safety/recovery coverage is
-reviewed; the published PyPI `0.1.0` release is unchanged.
+Retain the draft experimental PR until remote-interaction and broader safety
+coverage are reviewed; the published PyPI `0.1.0` release is unchanged.
