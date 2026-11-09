@@ -14,7 +14,8 @@ from simulated CI tests.
   window interaction on both virtual monitors and remote-client reconnect.
 - Experimental multi-monitor implementation remains in draft PR #3.
 - [M2 three-cycle Windows reliability smoke](windows-m2-smoke-2026-11-08.md):
-  console-confirmed PASS (3/3, 30-second soak each); receipt audit pending.
+  PASS (3/3, 30-second soak each), independently corroborated by the
+  uploaded structured receipt's event sequence and cleanup-baseline result.
 - Extended repetition/duration, sleep/reboot recovery, alternate GPU stacks,
   third monitor, Linux and macOS: not yet accepted.
 

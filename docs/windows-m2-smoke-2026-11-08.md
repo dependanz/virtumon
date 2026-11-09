@@ -1,11 +1,11 @@
 # Windows M2 reliability smoke: 2026-11-08
 
-**Result: console-confirmed PASS — 3/3 complete two-monitor cycles.**
+**Result: PASS — 3/3 complete two-monitor cycles, confirmed by console and structured receipt.**
 
-This evidence was supplied by the user as PowerShell output from the Windows 11
-development machine. The JSON receipt itself was **not uploaded or inspected**
-at the time of this record. Distinguish this console-level acceptance from
-an audited full receipt or a longer-duration reliability guarantee.
+The user supplied PowerShell output from the Windows 11 development machine
+and subsequently uploaded the exact exercise's JSON receipt for review.
+This provides console and structured receipt confirmation, **not** an
+independent kernel/driver trace or long-duration reliability guarantee.
 
 ## Build and preparation
 
@@ -50,21 +50,50 @@ after five more seconds, and `work` was removed, the original physical
 baseline rechecked, and the agent stopped.
 
 All three cycles reporting PASS is meaningful repeated native-hardware
-evidence beyond the initial single two-monitor acceptance. It does not by
-itself prove the absence of rare long-running failures, nor does it provide
-per-poll timestamps or exact monitor identities without inspecting the
-generated JSON receipt.
+evidence beyond the initial single two-monitor acceptance. The separately
+uploaded JSON receipt confirms the following event counts and UUID continuity:
+
+| Phase | Count |
+| --- | ---: |
+| `preflight-passed` | 1 |
+| `created-work` | 3 |
+| `created-chat` | 3 |
+| `soak-passed` | 3 |
+| `selective-remove-passed` | 3 |
+| `cycle-passed` | 3 |
+| `cleanup-baseline-restored` | 1 |
+| Failure or cleanup-error events | 0 |
+
+The receipt uses schema `virtumon.reliability-acceptance/v1`, run ID
+`d5fc8bdea83f4a4297d110ce9ea9a3bd`, `exercise=true`, `result=pass`,
+version `virtumon 0.2.0a1`, `cycles=3`, `soak_seconds=30` and
+`poll_seconds=5`. Each of the three selective-remove events retains the
+exact UUID created for its cycle's `work` monitor, and each `chat` UUID
+differs from its `work` UUID. The recorded initial state has one physical
+primary `DISPLAY1`, 2560 x 1600 at (0,0), zero saved managed monitors,
+and a stopped keeper.
+
+The recorded run began at `2026-11-09T00:13:34.668110+00:00` and ended at
+`2026-11-09T00:15:56.915143+00:00` (about **142.25 seconds overall**,
+including preflight, creation, checks, selective removal and cleanup). The
+configured two-monitor soak totals **90 seconds** across the three cycles.
+The receipt records successful terminal events, not individual timestamped
+heartbeat polls; those checks are implemented by the pinned runner and
+their success is evidenced indirectly by the PASS events.
+
+This does not prove the absence of rare long-running failures or establish
+additional compatibility beyond the tested machine.
 
 ## Next gate
 
-**Receipt review pending:** inspect the three-cycle JSON receipt for
-`result=pass`, cycle count, matching `created-work`, `created-chat`,
-`soak-passed`, `selective-remove-passed`, `cycle-passed` events,
-and `cleanup-baseline-restored`, with no failure/cleanup-error event.
-Compare its recorded physical baseline with the post-run read-only listing.
+**Receipt review completed: PASS.** All required phases and the final
+`cleanup-baseline-restored` event are present, with no recorded failure.
+An independently captured post-run `virtumon list --json` was not included
+with this receipt; the runner itself checked the physical desktop.
 
-After receipt review and confirmation of a clean machine, the next proposed
-stage is 25 cycles with a 60-second soak per cycle. The full one-hour
+The next proposed stage is **25 cycles with a 60-second two-monitor soak per
+cycle**, contingent on a fresh local read-only preflight and the machine
+starting with zero managed displays and the agent stopped. The full one-hour
 duration test and M3 sleep/keeper/watchdog recovery remain unverified.
 
 This result changes neither the published `0.1.0` package nor the draft
