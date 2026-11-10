@@ -870,8 +870,39 @@ def configure_display(identity: DisplayIdentity, width: int, height: int, refres
         _check_guard(guard)
         if result:
             raise _change_error(result)
-        fresh = _active_records(api, deadline, guard, phase="after-mode-test")
+        # On some SudoVDA/Windows hotplugs, the existing owned output becomes
+        # cloned only *after* a successful CDS_TEST. Arrival and prepare may
+        # therefore have returned independent displays, while this readback
+        # becomes inconsistent. Use the same guarded, pre-add-baseline CCD
+        # reconciliation here; do not retry an unverified GDI apply or replay
+        # an old whole-desktop configuration.
+        reconciled_after_test = False
+        after_test_options = {}
+        if pending_options:
+            def on_after_test_pending(error):
+                nonlocal reconciled_after_test
+                resolved = pending_options["pending_handler"](error)
+                if resolved is not None:
+                    reconciled_after_test = True
+                return resolved
+
+            after_test_options["pending_handler"] = on_after_test_pending
+        fresh = _active_records(api, deadline, guard, phase="after-mode-test",
+                                **after_test_options)
         _check_guard(guard)
+        if reconciled_after_test:
+            # The existing clone/multi-output helper already validated and
+            # applied one owned-only CCD transaction, then independently
+            # verified the actual signal and GDI interface. Return directly:
+            # a second ChangeDisplaySettingsExW apply could disrupt it again.
+            repaired = _active_target(fresh, key)
+            if repaired is None or not _requested(
+                    repaired.display, width, height, refresh_hz, x, y, primary):
+                raise WindowsLayoutError(
+                    "Guarded post-mode-test reconciliation did not retain "
+                    "the requested independent monitor.")
+            _check_guard(guard)
+            return repaired.display
         if not _same_records(before, fresh):
             raise WindowsLayoutError("The desktop changed while preparing the mode; retry the operation.")
         if not target.display.active:
