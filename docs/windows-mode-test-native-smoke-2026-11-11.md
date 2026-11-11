@@ -1,6 +1,6 @@
 # Native Windows late-mode-test fix smoke — user report 2026-11-11
 
-**Result: console-confirmed PASS (one two-monitor lifecycle). Receipt audit pending.**
+**Result: PASS — one native two-monitor lifecycle, corroborated by the uploaded structured receipt.**
 
 This record covers the first native hardware exercise of the candidate in
 [draft PR #5](https://github.com/dependanz/virtumon/pull/5), after the
@@ -58,8 +58,17 @@ runner is designed to verify actual Windows display enumeration,
 owned UUID continuity, keeper health, selective removal and cleanup
 during each successful cycle.
 
-**The uploaded JSON receipt has not yet been inspected**, so do not
-assert its event timestamps or a separate receipt-audited result.
+**The uploaded JSON receipt was subsequently audited.** It records schema
+`virtumon.reliability-acceptance/v1`, `result=pass`, a single
+`preflight-passed`, `created-work`, `created-chat`, `soak-passed`,
+`selective-remove-passed`, `cycle-passed`, and
+`cleanup-baseline-restored` in order, with zero failure/error events.
+The survivor's name and UUID exactly match the original `work`
+creation record. The baseline is a 2560×1600 physical primary at (0,0),
+zero managed monitors, agent stopped. The start and finish timestamps
+are `2026-11-11T13:24:16.660415+00:00` and
+`2026-11-11T13:25:11.168565+00:00`, an elapsed **54.508 seconds**.
+The receipt records phase completion, not timestamped heartbeat polls.
 
 **A passing cycle does not prove the new `after-mode-test` pending
 handler was invoked.** The previous failure was intermittent. This
