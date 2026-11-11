@@ -92,11 +92,14 @@ class FakeLayout:
         return list(self.screens.values())
 
     def configure_display(self, identity, width, height, refresh, x, y, *, guard=None,
-                          creation_baseline=None, owned_baseline=None, captured_baseline=None):
+                          creation_baseline=None, owned_baseline=None, captured_baseline=None,
+                          reconciliation_trace=None):
         self.configure_calls.append((identity, width, height, refresh, x, y))
         self.guards.append(guard)
         self.creation_baselines.append(creation_baseline)
         self.owned_baselines.append(owned_baseline)
+        if reconciliation_trace is not None and getattr(self, "trace_route", None):
+            reconciliation_trace["route"] = self.trace_route
         if self.before_configure:
             self.before_configure()
         if guard is not None and not guard():
@@ -236,11 +239,18 @@ class ManagedMonitorTests(unittest.TestCase):
         with patch.dict(os.environ, {"VIRTUMON_EXPERIMENTAL_MULTI": "1"}):
             row = self.manager.create(request("chat", side="right", anchor="work", width=1080, height=1920))
         self.assertEqual(row["status"], "active")
+        self.assertEqual(row["creation_route"], "direct")
         self.assertEqual((row["x"], row["y"], row["width"], row["height"]), (existing.x + existing.width, existing.y, 1080, 1920))
         self.assertEqual(self.layout.capture_calls, [[self.physical, self.unrelated, existing]])
         self.assertEqual(self.layout.owned_baselines, [[existing]])
         self.assertEqual(len(self.store.load()), 2)
         self.assert_unrelated_unchanged()
+
+    def test_create_exposes_route_without_persisting_it(self):
+        self.layout.trace_route = "multi-after-mode-test"
+        row = self.manager.create(request())
+        self.assertEqual(row["creation_route"], "multi-after-mode-test")
+        self.assertNotIn("creation_route", self.store.load()[0])
 
     def test_opt_in_rejects_stale_or_unverified_existing_identity_without_add(self):
         self.seed()

@@ -237,7 +237,8 @@ def exercise(cli, baseline, *, cycles: int, soak_seconds: int,
             )
             verify_layout(cli, baseline, expected, expect_agent=True)
             event(receipt, "created-work", cycle=cycle, name=work_name,
-                  uuid=work["id"], device=work.get("device"))
+                  uuid=work["id"], device=work.get("device"),
+                  creation_route=work.get("creation_route", "unreported"))
 
             attempted.append(chat_name)
             chat = cli.call("create", chat_name, "--resolution", "1080x1920",
@@ -248,7 +249,8 @@ def exercise(cli, baseline, *, cycles: int, soak_seconds: int,
             )
             verify_layout(cli, baseline, expected, expect_agent=True)
             event(receipt, "created-chat", cycle=cycle, name=chat_name,
-                  uuid=chat["id"], device=chat.get("device"))
+                  uuid=chat["id"], device=chat.get("device"),
+                  creation_route=chat.get("creation_route", "unreported"))
 
             start = clock()
             while True:
