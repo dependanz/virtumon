@@ -1,6 +1,6 @@
 # M3-B: keeper alive, heartbeat interrupted — experimental acceptance
 
-**Status: synthetic CI PASS; native test CONSOLE-CONFIRMED PASS, structured-receipt audit pending.** M3-A has already passed a receipt-audited keeper-process termination test. M3-B holds the keeper alive while intentionally suppressing heartbeat pings.
+**Status: native RECEIPT-AUDITED PASS (2026-11-11).** M3-A previously passed a receipt-audited keeper-process termination test. M3-B demonstrates the keeper stays alive and its heartbeat recovers without reviving stale ownership after an intentional five-second interruption.
 
 ## Safety constraints
 
@@ -104,15 +104,63 @@ wheel SHA-256:
   `list --json` with only physical primary `DISPLAY1` (0,0),
   2560×1600, and agent `running=false`, `managed_count=0`.
 
-The native runner's success indicates its assertions for same-PID
-heartbeat recovery, overdue heartbeat observation, persistent stale
-ownership, virtual-output disappearance, unsafe additional creation
-refusal and cleanup completed. **Neither structured receipt has yet
-been uploaded or independently audited**. Therefore exact event
-sequence and timestamps, original UUID, PID, measured observation
-intervals and per-event fields remain unverified from receipts.
+The user subsequently uploaded both complete JSON receipts, which
+were independently checked against this console record. **M3-B now
+passes native receipt-audited acceptance.**
 
-**Do not mark M3-B receipt-audited or release-ready until both JSON
-receipts are supplied and reviewed.** This test does not validate M3-C
-reboot, M3-D sleep/resume or M3-E two-monitor crash recovery. The
-fault-injection hook must be removed or excluded from release builds.
+### Structured receipt audit
+
+Both receipts use schema `virtumon.m3-heartbeat-outage/v1` and report
+`result=pass`.
+
+**Read-only receipt** `0a7f3b1aadc4460fad5f9b4a5120c38a`:
+`exercise=false`, one ordered `preflight-passed` event, one baseline
+physical display, zero saved monitors, agent stopped. Elapsed **2.949 s**
+(19:53:02.106988–19:53:05.055521 UTC).
+
+**Native heartbeat-outage receipt** `00fa24eef2b640a898b477a38251071b`:
+`exercise=true`, observation window 30 seconds, **12 correctly ordered
+events**, zero failure/cleanup-error events. Start 19:53:16.596553 UTC;
+finish 19:53:39.592709 UTC; total elapsed **22.996 s**.
+
+| Event | UTC time | Observation |
+| --- | --- | --- |
+| `preflight-passed` | 19:53:19.425379 | One baseline, no managed monitors, agent stopped |
+| `exercise-start` | 19:53:19.575850 | Name `m3heartbeat-e02ea2c490e9` |
+| `created-monitor` | 19:53:24.102201 | UUID `7e06d439-20ea-4198-8001-46ccbecb3d78`, `DISPLAY28`, `clone-prepare`, PID **59304** |
+| `heartbeat-pause-acknowledged` | 19:53:26.487682 | PID **59304**; requested pause 5.0 s |
+| `heartbeat-overdue-observed` | 19:53:29.443678 | Driver heartbeat overdue; saved mappings unverified |
+| `stale-ownership-observed` | 19:53:29.443699 | Same name and UUID marked stale |
+| `virtual-output-disappeared` | 19:53:29.443704 | Virtual display no longer enumerated |
+| `heartbeat-recovered-identity-stale` | 19:53:33.243453 | Same PID **59304**, same UUID still stale after `ok` |
+| `unsafe-creation-refused` | 19:53:34.580215 | New probe `m3blocked-3c5a98e2b7b0` rejected |
+| `cleanup-removed` | 19:53:36.306527 | Exact original name removed |
+| `cleanup-baseline-restored` | 19:53:39.592655 | Original physical-only desktop verified |
+| `recovery-passed` | 19:53:39.592691 | Same original UUID, recovery passed |
+
+**Identity continuity:** The PID in `created-monitor`, the pause
+acknowledgment and the recovered-heartbeat event is **59304**. The
+UUID in creation, stale observation, recovered stale status and final
+`recovery-passed` is identical:
+`7e06d439-20ea-4198-8001-46ccbecb3d78`.
+
+**Measured receipt timestamp intervals:** Pause acknowledged to first
+overdue-heartbeat observation **2.956 s**; to first missing virtual
+output observation **2.956 s**; to healthy heartbeat with identity still
+stale **6.756 s**. These intervals include command and polling
+overheads, and **do not measure the exact driver watchdog tick or the
+five-second pause in kernel time**.
+
+The independent post-run `virtumon` CLI observations match the
+receipt's final `cleanup-baseline-restored` event: managed `[]`,
+physical `DISPLAY1` only (0,0), 2560×1600, primary, agent stopped.
+
+**Acceptance decision:** M3-B keeper-alive, one-shot heartbeat
+interruption and permanent stale-identity safety **PASS on the tested
+Windows laptop**, corroborated by the native receipt and CLI.
+The acceptance covers the runner's tested assertions. It does not
+prove arbitrary prolonged failures, deadlocks, process replacements,
+reboot (M3-C), sleep/resume (M3-D), two-monitor crash/reconnect (M3-E),
+or the still-unobserved `multi-after-mode-test` native route.
+The test-only fault-injection method must be removed or strictly
+excluded from any release-ready build; the PR remains draft.
