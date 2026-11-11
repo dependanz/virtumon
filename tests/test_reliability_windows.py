@@ -88,14 +88,23 @@ class FakeCli:
             if self.failure == "second_create" and len(self.monitors) == 2:
                 raise reliability.AcceptanceFailure("Simulated failed second create")
         elif args and args[0] == "remove":
-            name = args[1]
-            if name not in self.monitors:
-                raise reliability.AcceptanceFailure(f"Unknown name {name}")
-            self.remove_calls.append(name)
-            del self.monitors[name]
+            names = list(args[1:-1])
+            assert args[-1] == "--json", args
+            if not names or any(name not in self.monitors for name in names):
+                raise reliability.AcceptanceFailure("Unknown fake monitor name.")
+            # Matches the production selective-removal guard: external Windows
+            # rearrangement invalidates stored geometry for a surviving output.
+            if len(self.monitors) == 2 and len(names) == 1:
+                if any(row["x"] != (2560 if row["width"] == 1920 else 4480)
+                       for row in self.monitors.values()):
+                    raise reliability.AcceptanceFailure(
+                        "Selective removal refused: a monitor moved.")
+            self.remove_calls.extend(names)
+            for name in names:
+                del self.monitors[name]
             if self.failure == "survivor_detached" and self.monitors:
                 self.monitors[next(iter(self.monitors))]["status"] = "error"
-            result = {"removed": [name], "errors": []}
+            result = {"removed": names, "errors": []}
         else:
             raise AssertionError(f"Unexpected fake CLI command: {args}")
         if shape is not None:
@@ -225,6 +234,68 @@ class NativeReliabilityHarnessTests(unittest.TestCase):
         # merely because the managed list is empty; require manual inspection.
         self.assertTrue(fake.agent_running)
         self.assertTrue(any(e["phase"] == "cleanup-incomplete" for e in output["events"]))
+
+    def test_external_rearrangement_batch_cleans_two_verified_owned_monitors(self):
+        fake = FakeCli()
+        clock = Clock()
+        output = new_receipt()
+        moved = [False]
+
+        def external_settings_move(seconds):
+            clock.sleep(seconds)
+            if not moved[0]:
+                moved[0] = True
+                for item in fake.monitors.values():
+                    item["x"] = 0 if item["width"] == 1920 else -1080
+                    item["y"] = -1080 if item["width"] == 1920 else -314
+
+        with self.assertRaisesRegex(
+            reliability.AcceptanceFailure, "changed x"
+        ):
+            reliability.exercise(fake, [fake.physical.copy()], cycles=1,
+                                 soak_seconds=60, poll_seconds=5,
+                                 sleep=external_settings_move,
+                                 clock=clock.monotonic, receipt=output)
+
+        self.assertFalse(fake.monitors)
+        self.assertFalse(fake.agent_running)
+        batches = [args for args in fake.calls if args[0] == "remove"]
+        self.assertEqual(len(batches), 1, batches)
+        self.assertEqual(len(batches[0]), 4, batches)
+        self.assertEqual(sum(e["phase"] == "cleanup-batch-removed"
+                             for e in output["events"]), 1)
+        self.assertEqual(sum(e["phase"] == "cleanup-baseline-restored"
+                             for e in output["events"]), 1)
+        self.assertEqual(sum(e["phase"] == "cycle-passed"
+                             for e in output["events"]), 0)
+        self.assertFalse(any(e["phase"] == "cleanup-incomplete"
+                             for e in output["events"]))
+
+    def test_batch_cleanup_refuses_mismatched_uuid_without_native_remove(self):
+        fake = FakeCli()
+        clock = Clock()
+        output = new_receipt()
+
+        def replace_identity(seconds):
+            clock.sleep(seconds)
+            for item in fake.monitors.values():
+                if item["width"] == 1920:
+                    item["x"] = 0
+                else:
+                    item["id"] = str(uuid.uuid4())
+                    item["x"] = -1080
+
+        with self.assertRaisesRegex(reliability.AcceptanceFailure,
+                                    "Managed UUID"):
+            reliability.exercise(fake, [fake.physical.copy()], cycles=1,
+                                 soak_seconds=5, poll_seconds=5,
+                                 sleep=replace_identity,
+                                 clock=clock.monotonic, receipt=output)
+        self.assertEqual(fake.remove_calls, [])
+        self.assertTrue(fake.agent_running)
+        self.assertEqual(len(fake.monitors), 2)
+        self.assertTrue(any(e["phase"] == "cleanup-incomplete"
+                            for e in output["events"]))
 
     def test_receipt_is_write_once_and_json(self):
         with tempfile.TemporaryDirectory() as folder:
