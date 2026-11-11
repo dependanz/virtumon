@@ -1,77 +1,108 @@
 # M2 native one-hour reliability acceptance — 2026-11-11
 
-**Status: CONSOLE-CONFIRMED PASS; structured-receipt audit pending.**
+**Status: RECEIPT-AUDITED PASS — 30-second smoke and 3,600-second two-monitor duration gate.**
 
-## Scope and provenance
+## Test environment
 
-The user ran the native Windows 11 reliability harness after switching to
-`fix/windows-reliability-batch-cleanup` at commit `f2392e7`, installing
-`virtumon 0.2.0a1` from the checkout, and enabling
-`VIRTUMON_EXPERIMENTAL_MULTI=1`.
+The user ran the native Windows 11 reliability harness from branch
+`fix/windows-reliability-batch-cleanup` at commit `f2392e7`;
+`virtumon 0.2.0a1` was installed locally from that checkout,
+with `VIRTUMON_EXPERIMENTAL_MULTI=1`.
 
-Installed wheel SHA-256 reported by pip:
+Wheel SHA-256 reported by the native pip build:
 `3d1159d10561c582e9ca389140db7efd8d57632c11b4fdbdbdb2a06123fe9a0a`.
 
-Initial native preflight was independently checked by CLI:
+Preflight: Windows 11 AMD64, Python 3.13.5, SudoVDA protocol 0.2.1,
+3-second watchdog; no managed monitors; agent stopped; only physical
+`DISPLAY1`, 2560×1600, primary, at (0,0).
 
-- Windows 11 AMD64; Python 3.13.5.
-- SudoVDA driver available; protocol 0.2.1; watchdog 3 s.
-- `list --managed --json` returned `[]`.
-- `list --json` returned physical primary `DISPLAY1`, (0,0),
-  2560 × 1600, as the only active display.
-- Agent reported `running=false`, `managed_count=0`.
+## Native runs and independent receipt audit
 
-## Native executions
+Both `virtumon.reliability-acceptance/v1` structured receipts were
+uploaded and independently checked against the native console output.
+Each receipt includes exactly seven ordered events:
+`preflight-passed`, `created-work`, `created-chat`,
+`soak-passed`, `selective-remove-passed`, `cycle-passed`,
+`cleanup-baseline-restored`. Both have `result=pass`; neither
+includes an error, failure or incomplete-cleanup event.
 
-| Gate | Command settings | Created names | Console result | Receipt |
-| --- | --- | --- | --- | --- |
-| M2 post-fix smoke | `--exercise --cycles 1 --soak-seconds 30 --poll-seconds 5` | `m2work-c89e81c36a43`, `m2chat-c89e81c36a43` | `Cycle 1/1: PASS` | `reliability-c1a471d8153849399b22ef1e9943f26d.json` |
-| M2 duration | `--exercise --cycles 1 --soak-seconds 3600 --poll-seconds 5` | `m2work-19e87edc83b6`, `m2chat-19e87edc83b6` | `Cycle 1/1: PASS` | `reliability-e2346442b4464c46b93c27e4c1916ace.json` |
+| Check | 30-second smoke | One-hour sustained soak |
+| --- | --- | --- |
+| Command | `--exercise --cycles 1 --soak-seconds 30 --poll-seconds 5` | `--exercise --cycles 1 --soak-seconds 3600 --poll-seconds 5` |
+| Receipt ID | `c1a471d8153849399b22ef1e9943f26d` | `e2346442b4464c46b93c27e4c1916ace` |
+| `result` | `pass` | `pass` |
+| Start (UTC) | 2026-11-11 17:10:22.244841 | 2026-11-11 17:11:28.153466 |
+| End (UTC) | 2026-11-11 17:11:23.850312 | 2026-11-11 18:11:55.105982 |
+| Total elapsed | **61.605 s** | **3,626.953 s** |
+| `created-chat` → `soak-passed` | **31.642 s** | **3,601.208 s** |
+| `work` route | `clone-prepare` | `clone-prepare` |
+| `chat` route | `multi-prepare` | `multi-prepare` |
+| Selective removal | `selective-remove-passed` | `selective-remove-passed` |
+| Survivor UUID preservation | Verified exact match | Verified exact match |
+| Cleanup | `cleanup-baseline-restored` | `cleanup-baseline-restored` |
+| Error events | 0 | 0 |
 
-For both runs, the user captured `$LASTEXITCODE` into
-`$smokeExit` or `$durationExit`; the respective conditional
-error/warning branch did not execute.
+**Smoke creation identities:**
+- `work`: `m2work-c89e81c36a43`, UUID
+  `88177bf1-8edf-49b0-b551-5c137bc60604`, `DISPLAY28`.
+- `chat`: `m2chat-c89e81c36a43`, UUID
+  `207bc8d2-6151-49d4-acc8-ae95c882ad8a`, `DISPLAY29`.
+- The selective-removal survivor entry exactly matches the original
+  `work` name and UUID.
 
-After each run, independent CLI commands again reported:
+**One-hour creation identities:**
+- `work`: `m2work-19e87edc83b6`, UUID
+  `be75f8fa-0a30-4b68-81c0-59e7afc6c9d8`, `DISPLAY28`.
+- `chat`: `m2chat-19e87edc83b6`, UUID
+  `60aaf6ec-3910-40eb-8664-3bcb96ff04af`, `DISPLAY29`.
+- `soak-passed` was recorded at **18:11:42.241762 UTC**,
+  followed by `selective-remove-passed` at **18:11:49.724152 UTC**,
+  `cycle-passed` at **18:11:52.782361 UTC**, and
+  `cleanup-baseline-restored` at **18:11:55.105927 UTC**.
+- The selective-removal survivor name and UUID exactly match the
+  `work` creation identity.
 
-- `list --managed --json` = `[]`;
-- `list --json` = only physical primary `DISPLAY1`,
-  2560 × 1600 at (0,0);
-- `agent status --json`: `running=false`, `managed_count=0`.
+All four created UUIDs are distinct. In both receipts the baseline
+physical monitor is `DISPLAY1`, 2560×1600 at (0,0), primary, and
+`preflight-passed` confirms a single original display, zero saved
+monitors, and a stopped agent. Independent post-run CLI output after
+**each** test showed an empty managed list, only the physical primary
+display and a stopped agent.
 
-The 3600-second configured soak **completed successfully according to
-the harness and console**, unlike the earlier invalidated run in which
-the user explicitly rearranged Windows displays. No external
-rearrangement was reported during this successful run.
+## Interpretation and coverage boundaries
 
-## What this validates and what it does not
+**M2 fixed-layout one-hour duration acceptance: PASS**, backed by the
+native harness result, chronological structured receipt, exact matched
+survivor identity, and separate post-run cleanup verification. The
+harness was configured to check live display geometry and keeper health
+every five seconds during the 3,600-second soak; the receipt records
+the successful `soak-passed` gate but **does not log individual poll
+samples or heartbeat measurements**, so an exact number of completed
+polls is not independently available from these receipts.
 
-The console result supports successful creation, sustained
-fixed-layout supervision, selective-removal preservation, exact-name
-cleanup, and restoration of the physical baseline, under the
-runner's implemented acceptance assertions.
+Both executions took the preparation-stage guarded reconciliation routes
+(`clone-prepare`, `multi-prepare`). This demonstrates those paths
+work in a sustained native run; it does **not** show the intermittent
+`multi-after-mode-test` route executing.
 
-The two JSON receipts are **not yet provided or independently
-audited**. This record does **not** assert exact observed elapsed
-seconds, number of successful polls, creation-route values, individual
-UUID continuity, or absence of receipt-level error events without
-the structured data. All of those should be checked before labeling
-the duration acceptance **receipt-audited**.
+A normal passing lifecycle does **not** exercise the new UUID-guarded
+batch cleanup after user-driven Windows Display Settings rearrangement;
+that new path is covered synthetically and still requires native
+acceptance. The earlier interrupted duration attempt remains a
+separate, correctly reported **external-layout-change FAIL**, not part
+of this successful soak.
 
-A normal PASS does not exercise the new cleanup fallback after a
-forced external layout change, nor does it prove the intermittent
-`multi-after-mode-test` reconciliation branch executed. It does
-not cover M3 crash, watchdog, sleep, reboot, or remote reconnect
-recovery behavior.
+This acceptance does **not** establish the M3 crash, watchdog,
+sleep/resume, reboot or unexpected process-termination recovery gates,
+and is not authorization to merge draft PRs or publish to PyPI.
 
-## Follow-up
+## Next work
 
-1. Receive and audit both local receipt files, especially the
-   one-hour receipt's event sequence, two creation routes, and
-   timestamps.
-2. Keep PR #6 in draft until its new guarded cleanup path is
-   explicitly tested on the native machine, independently of
-   M2 duration.
-3. Begin a separate, bounded M3 failure/recovery test design,
-   with physical-primary preservation and confirmed rollback
-   as hard safety constraints.
+- Keep PR #6 (guarded batch cleanup) draft until its new failure-path
+  behavior is independently exercised on Windows under a controlled,
+  physically recoverable procedure.
+- Begin M3 with bounded, fail-closed keeper and watchdog interruption
+  tests before more disruptive sleep/reboot scenarios.
+- Preserve the native receipt filenames as audit references:
+  `reliability-c1a471d8153849399b22ef1e9943f26d.json` and
+  `reliability-e2346442b4464c46b93c27e4c1916ace.json`.
