@@ -44,9 +44,38 @@ survivor whose geometry had changed. The script consequently reported
 
 The console reported runner receipt
 `reliability-a0f12302cf0b4a6697f6c9fc8cc0bd62.json`.
-This receipt has not been uploaded or audited here. At the last observed
-CLI state, both named monitors were still active, and the agent was healthy.
-The user's subsequent manual batch-removal result is **not yet known**.
+This receipt has not been uploaded or audited here. Directly after the
+failed test, both named monitors remained active with the agent healthy.
+**A later user-supplied recovery verification confirms that they are no
+longer managed and no longer present in Windows' active display list.**
+The exact manual removal command/output was not supplied, so the successful
+outcome does not establish that a particular batch-removal operation ran.
+
+## Independently verified final recovery
+
+After the user addressed the incomplete cleanup, the CLI reported:
+
+```text
+virtumon agent stop
+Stopped the Virtumon agent.
+
+virtumon agent status --json
+{"running": false, "managed_count": 0, ...}
+
+virtumon list --managed --json
+[]
+
+virtumon list --json
+[{"device": "\\\\.\\DISPLAY1", "x": 0, "y": 0,
+  "width": 2560, "height": 1600, "primary": true}]
+```
+
+**Recovery result: PASS** — no managed virtual outputs, only the physical
+primary display in Windows, and the keeper stopped. This confirms a safe
+eventual cleanup outcome, **not** that the old automatic cleanup succeeded
+or that the new harness batch-cleanup logic has been validated on hardware.
+The one-hour test remains invalidated by the external Windows Settings
+arrangement change.
 
 ## Interpretation
 
