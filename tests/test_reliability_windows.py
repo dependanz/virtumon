@@ -86,6 +86,9 @@ class FakeCli:
             }
             self.monitors[name] = result
             if self.failure == "second_create" and len(self.monitors) == 2:
+                # Real manager performs an exact-UUID rollback before reporting
+                # that the failed new monitor was not retained.
+                del self.monitors[name]
                 raise reliability.AcceptanceFailure("Simulated failed second create")
         elif args and args[0] == "remove":
             names = list(args[1:-1])
@@ -198,7 +201,7 @@ class NativeReliabilityHarnessTests(unittest.TestCase):
                                  receipt=output)
         self.assertEqual(fake.monitors, {})
         self.assertFalse(fake.agent_running)
-        self.assertEqual(len(fake.remove_calls), 2)
+        self.assertEqual(len(fake.remove_calls), 1)
         self.assertEqual(output["events"][-1]["phase"], "cleanup-baseline-restored")
 
     def test_survivor_detaches_after_selective_removal_is_not_pass(self):
@@ -234,6 +237,42 @@ class NativeReliabilityHarnessTests(unittest.TestCase):
         # merely because the managed list is empty; require manual inspection.
         self.assertTrue(fake.agent_running)
         self.assertTrue(any(e["phase"] == "cleanup-incomplete" for e in output["events"]))
+
+    def test_partial_second_create_with_unknown_uuid_fails_closed(self):
+        fake = FakeCli()
+        clock = Clock()
+        output = new_receipt()
+        # Simulate a driver/manager that returns an error before the second
+        # monitor ID can be captured, but leaves its record. Only one ID is
+        # known by the harness; it must not batch-remove an unverified pair.
+        original = fake.call
+
+        def partial_create(*arguments, shape=None):
+            if arguments[:2] == ("create", "m2chat-fixed"):
+                raise AssertionError("Unreachable: generated monitor names vary.")
+            if arguments and arguments[0] == "create" and arguments[1].startswith("m2chat-"):
+                name = arguments[1]
+                fake.monitors[name] = {
+                    "name": name, "id": str(uuid.uuid4()), "status": "active",
+                    "device": r"\\.\DISPLAY29", "x": 4480, "y": 0,
+                    "width": 1080, "height": 1920, "refresh_hz": 60,
+                    "primary": False,
+                }
+                raise reliability.AcceptanceFailure("simulated unreturned identity")
+            return original(*arguments, shape=shape)
+
+        fake.call = partial_create
+        with self.assertRaisesRegex(reliability.AcceptanceFailure,
+                                    "Cannot batch-remove two monitors"):
+            reliability.exercise(fake, [fake.physical.copy()], cycles=1,
+                                 soak_seconds=5, poll_seconds=5,
+                                 sleep=clock.sleep, clock=clock.monotonic,
+                                 receipt=output)
+        self.assertEqual(fake.remove_calls, [])
+        self.assertTrue(fake.agent_running)
+        self.assertEqual(len(fake.monitors), 2)
+        self.assertTrue(any(e["phase"] == "cleanup-incomplete"
+                            for e in output["events"]))
 
     def test_external_rearrangement_batch_cleans_two_verified_owned_monitors(self):
         fake = FakeCli()
