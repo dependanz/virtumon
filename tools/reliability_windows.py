@@ -187,18 +187,60 @@ def _remove_exact(cli, name: str) -> None:
             f"Exact-name removal of {name} was not confirmed.")
 
 
-def _cleanup(cli, baseline, attempted, receipt):
-    """Remove ONLY script-generated names. Stop agent only after empty baseline."""
+def _cleanup(cli, baseline, attempted, receipt, known_ids=None):
+    """Clean only generated monitors; batch two exact UUIDs after layout drift.
+
+    Removing just one of two monitors requires a matching saved layout, to
+    protect its survivor. After an external Windows Settings rearrangement the
+    driver correctly refuses that selective operation. In a *failed* test,
+    both generated monitors may instead be removed in one CLI request, but
+    only when both names and their returned UUIDs are reverified. Never use
+    --all or touch a monitor that was not created by this run.
+    """
     issues = []
-    for name in reversed(attempted):
-        try:
-            owned = cli.call("list", "--managed", "--json", shape=list)
-            if any(row.get("name") == name for row in owned):
-                _remove_exact(cli, name)
-                event(receipt, "cleanup-removed", name=name)
-        except Exception as exc:
-            issues.append(f"{name}: {exc}")
-            event(receipt, "cleanup-error", name=name, error=str(exc))
+    known_ids = known_ids or {}
+    skip_individual = False
+    try:
+        current = cli.call("list", "--managed", "--json", shape=list)
+        names = {row.get("name") for row in current}
+        require(len(names) == len(current), "Duplicate managed names during cleanup.")
+        require(names <= set(attempted), "Unrelated managed monitor appeared; no cleanup was attempted.")
+        for row in current:
+            name = row.get("name")
+            if name in known_ids:
+                require(row.get("id") == known_ids[name],
+                        f"Managed UUID for {name} changed; no cleanup was attempted.")
+        if len(current) == 2 and len(attempted) == 2:
+            require(all(row["name"] in known_ids for row in current),
+                    "Cannot batch-remove two monitors without both confirmed UUIDs.")
+            selected = list(reversed(attempted))
+            removed = cli.call("remove", *selected, "--json", shape=dict)
+            require(removed.get("errors") == [] and
+                    len(removed.get("removed", [])) == 2 and
+                    set(removed["removed"]) == set(selected),
+                    "Exact-name batch removal did not confirm both owned monitors.")
+            event(receipt, "cleanup-batch-removed",
+                  names=selected, uuids=[known_ids[name] for name in selected])
+            skip_individual = True
+    except Exception as exc:
+        skip_individual = True
+        issues.append(f"Guarded cleanup: {exc}")
+        event(receipt, "cleanup-error", error=str(exc))
+    if not skip_individual:
+        for name in reversed(attempted):
+            try:
+                owned = cli.call("list", "--managed", "--json", shape=list)
+                matches = [row for row in owned if row.get("name") == name]
+                require(len(matches) <= 1, f"Duplicate managed record for {name}.")
+                if matches:
+                    if name in known_ids:
+                        require(matches[0].get("id") == known_ids[name],
+                                f"Managed UUID for {name} changed; refusing cleanup.")
+                    _remove_exact(cli, name)
+                    event(receipt, "cleanup-removed", name=name)
+            except Exception as exc:
+                issues.append(f"{name}: {exc}")
+                event(receipt, "cleanup-error", name=name, error=str(exc))
     try:
         verify_layout(cli, baseline, {}, expect_agent=False)
         agent = cli.call("agent", "status", "--json", shape=dict)
@@ -221,6 +263,7 @@ def exercise(cli, baseline, *, cycles: int, soak_seconds: int,
     work_y = original["y"]
     chat_x = work_x + 1920
     attempted = []
+    known_ids = {}
     failed = None
 
     try:
@@ -235,6 +278,7 @@ def exercise(cli, baseline, *, cycles: int, soak_seconds: int,
             expected[work_name] = _require_created(
                 work, name=work_name, width=1920, height=1080, x=work_x, y=work_y
             )
+            known_ids[work_name] = work["id"]
             verify_layout(cli, baseline, expected, expect_agent=True)
             event(receipt, "created-work", cycle=cycle, name=work_name,
                   uuid=work["id"], device=work.get("device"),
@@ -247,6 +291,7 @@ def exercise(cli, baseline, *, cycles: int, soak_seconds: int,
             expected[chat_name] = _require_created(
                 chat, name=chat_name, width=1080, height=1920, x=chat_x, y=work_y
             )
+            known_ids[chat_name] = chat["id"]
             verify_layout(cli, baseline, expected, expect_agent=True)
             event(receipt, "created-chat", cycle=cycle, name=chat_name,
                   uuid=chat["id"], device=chat.get("device"),
@@ -281,7 +326,7 @@ def exercise(cli, baseline, *, cycles: int, soak_seconds: int,
         failed = exc
         event(receipt, "exercise-failure", error=str(exc))
     finally:
-        cleanup_issues = _cleanup(cli, baseline, attempted, receipt)
+        cleanup_issues = _cleanup(cli, baseline, attempted, receipt, known_ids)
         if cleanup_issues:
             event(receipt, "cleanup-incomplete", errors=cleanup_issues)
         if failed is not None:
