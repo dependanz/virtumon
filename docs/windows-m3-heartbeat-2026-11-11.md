@@ -1,8 +1,6 @@
 # M3-B: keeper alive, heartbeat interrupted — experimental acceptance
 
-**Status: synthetic CI and native acceptance pending.** M3-A has already
-passed a verified keeper-process termination test; M3-B instead holds the
-keeper process alive while intentionally suppressing heartbeat pings.
+**Status: synthetic CI PASS; native test CONSOLE-CONFIRMED PASS, structured-receipt audit pending.** M3-A has already passed a receipt-audited keeper-process termination test. M3-B holds the keeper alive while intentionally suppressing heartbeat pings.
 
 ## Safety constraints
 
@@ -81,3 +79,40 @@ driver replacement, host reboot or sleep/resume. M3-C/D/E and
 the intermittent `multi-after-mode-test` native route are separate.
 The fault hook should be removed or strictly excluded from
 any release-ready production build.
+
+## Native Windows console observations — 2026-11-11
+
+The user checked out `feature/windows-m3-heartbeat-outage` at
+`1be811a9c40f8622cd08abb48234173519cf8052`, built and installed
+`virtumon 0.2.0a1` using Python 3.13.5 on Windows 11. Reported built
+wheel SHA-256:
+`2aa91b89f5a8ff4c9b44de25b371dc82f1677294db4a54c691cfb1e70cf77790`.
+
+- Read-only preflight printed **PASS**. Receipt filename:
+  `m3-heartbeat-0a7f3b1aadc4460fad5f9b4a5120c38a.json`.
+- Independent preflight CLI checks reported `[]` managed monitors,
+  only physical primary `DISPLAY1` at (0,0), 2560×1600, and the
+  keeper stopped.
+- The user explicitly set `VIRTUMON_EXPERIMENTAL_MULTI=1` and
+  `VIRTUMON_M3_B_ALLOW=YES`, then invoked
+  `m3_heartbeat_windows.py --exercise --allow-heartbeat-pause --observation-seconds 30`.
+- The runner printed its M3-B scenario line and a receipt filename:
+  `m3-heartbeat-00fa24eef2b640a898b477a38251071b.json`.
+  The exit code was captured in `$m3bExit`. The conditional failure
+  warning did **not** fire, so the native run is console-confirmed PASS.
+- Independent post-run CLI checks reported `list --managed = []`,
+  `list --json` with only physical primary `DISPLAY1` (0,0),
+  2560×1600, and agent `running=false`, `managed_count=0`.
+
+The native runner's success indicates its assertions for same-PID
+heartbeat recovery, overdue heartbeat observation, persistent stale
+ownership, virtual-output disappearance, unsafe additional creation
+refusal and cleanup completed. **Neither structured receipt has yet
+been uploaded or independently audited**. Therefore exact event
+sequence and timestamps, original UUID, PID, measured observation
+intervals and per-event fields remain unverified from receipts.
+
+**Do not mark M3-B receipt-audited or release-ready until both JSON
+receipts are supplied and reviewed.** This test does not validate M3-C
+reboot, M3-D sleep/resume or M3-E two-monitor crash recovery. The
+fault-injection hook must be removed or excluded from release builds.
