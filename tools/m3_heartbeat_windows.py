@@ -63,7 +63,7 @@ def observe_recovery(cli, control, *, baseline, name, monitor_id, device, pid,
         if (status.get("heartbeat") == "ok" and status.get("error") is None and
                 stale_seen and disappeared and error_seen):
             require(rows[0].get("status") == "stale",
-                    "M3-B stale identity was reactivated after heartbeat recovery.")
+                    "M3-B stale target was incorrectly reactivated.")
             m2.event(receipt, "heartbeat-recovered-identity-stale", pid=pid,
                      name=name, uuid=monitor_id)
             return
