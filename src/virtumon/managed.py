@@ -229,6 +229,7 @@ class MonitorManager:
             identity = None
             attempted = False
             phase = "driver-add"
+            reconciliation_trace = {}
             try:
                 with self.driver_factory() as driver:
                     if experimental_multi and any(
@@ -248,7 +249,9 @@ class MonitorManager:
                 display = self.layout.configure_display(identity, record["width"], record["height"],
                                                         record["refresh_hz"], *position,
                                                         guard=lambda: self._current(record),
-                                                        creation_baseline=before, **multi_options)
+                                                        creation_baseline=before,
+                                                        reconciliation_trace=reconciliation_trace,
+                                                        **multi_options)
                 phase = "verify-created-display"
                 after = self.layout.list_native_displays()
                 by_key = {display_key(item): item for item in after}
@@ -269,7 +272,10 @@ class MonitorManager:
                 record["last_observed"] = {field: getattr(display, field) for field in
                                            ("device", "x", "y", "width", "height", "refresh_hz", "primary")}
                 self.store.save(records)
-                return self._row(record, after)
+                row = self._row(record, after)
+                # Create response only; no persistent journal schema change.
+                row["creation_route"] = reconciliation_trace.get("route", "direct")
+                return row
             except Exception as exc:
                 diagnostic_note = self._save_creation_diagnostic(exc, record, request, before, position, phase)
                 cleanup_error = None

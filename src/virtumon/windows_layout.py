@@ -775,7 +775,8 @@ def configure_display(identity: DisplayIdentity, width: int, height: int, refres
                       guard: Callable[[], bool] | None = None,
                       creation_baseline: list[NativeDisplay] | None = None,
                       owned_baseline: list[NativeDisplay] | None = None,
-                      captured_baseline=None) -> NativeDisplay:
+                      captured_baseline=None,
+                      reconciliation_trace: dict | None = None) -> NativeDisplay:
     """Set and verify one owned monitor while preserving all other active paths.
 
     An inactive target is attached only when its exact monitor interface is
@@ -798,6 +799,10 @@ def configure_display(identity: DisplayIdentity, width: int, height: int, refres
         _check_guard(guard)
         api = _get_api()
         pending_options = {}
+        # Diagnostic only; never authorize native writes using the trace.
+        reconciliation_stage = "arrival"
+        if reconciliation_trace is not None:
+            reconciliation_trace["route"] = "direct"
         if owned_baseline is not None or captured_baseline is not None:
             if not (owned_baseline and captured_baseline and creation_baseline and guard):
                 raise WindowsLayoutError("Multi-monitor creation requires a complete baseline and live guard.")
@@ -814,6 +819,8 @@ def configure_display(identity: DisplayIdentity, width: int, height: int, refres
                     x, y, deadline, guard,
                 )
                 multi_resolved = resolved is not None
+                if multi_resolved and reconciliation_trace is not None:
+                    reconciliation_trace["route"] = f"multi-{reconciliation_stage}"
                 return resolved
 
             pending_options["pending_handler"] = pending_handler
@@ -828,6 +835,8 @@ def configure_display(identity: DisplayIdentity, width: int, height: int, refres
                 resolved = extend_new_clone(api, error.observation, key, creation_baseline,
                                             width, height, refresh_hz, x, y, deadline, guard)
                 clone_resolved = resolved is not None
+                if clone_resolved and reconciliation_trace is not None:
+                    reconciliation_trace["route"] = f"clone-{reconciliation_stage}"
                 return resolved
 
             pending_options["pending_handler"] = pending_handler
@@ -836,6 +845,7 @@ def configure_display(identity: DisplayIdentity, width: int, height: int, refres
             # Arrival can precede GDI source association. Re-read both active
             # topology and inactive candidates instead of reusing stale paths.
             _check_guard(guard)
+            reconciliation_stage = "prepare"
             before = _active_records(api, deadline, guard, phase="prepare", **pending_options)
             _check_guard(guard)
             target = _active_target(before, key)
@@ -887,6 +897,7 @@ def configure_display(identity: DisplayIdentity, width: int, height: int, refres
                 return resolved
 
             after_test_options["pending_handler"] = on_after_test_pending
+        reconciliation_stage = "after-mode-test"
         fresh = _active_records(api, deadline, guard, phase="after-mode-test",
                                 **after_test_options)
         _check_guard(guard)

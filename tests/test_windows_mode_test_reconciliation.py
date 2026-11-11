@@ -58,7 +58,9 @@ class LateModeTestCloneTests(unittest.TestCase):
 
     def test_late_cloning_reconciles_without_any_second_gdi_apply(self):
         self.api.on_test = self.displace_work
-        result = self.configure()
+        trace = {}
+        result = self.configure(reconciliation_trace=trace)
+        self.assertEqual(trace, {"route": "multi-after-mode-test"})
         self.assertEqual((result.x, result.y, result.width, result.height,
                           result.refresh_hz, result.primary),
                          (4480, 0, 1080, 1920, 60, False))
