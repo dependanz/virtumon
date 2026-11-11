@@ -28,6 +28,13 @@ class Keeper:
         self.driver = None
         self.stop_event = threading.Event()
         self.thread = threading.Thread(target=self._run, name="virtumon-heartbeat", daemon=True)
+        # Test-only, one-shot, self-expiring heartbeat suppression. The keeper
+        # process and its authenticated IPC remain alive during the pause.
+        self._fault_lock = threading.Lock()
+        self._fault_requested = 0.0
+        self._fault_until = 0.0
+        self._fault_used = False
+        self._fault_started = threading.Event()
 
     def _connect(self):
         driver = self.driver_factory()
@@ -66,9 +73,36 @@ class Keeper:
                 raise OperationError("The active SudoVDA device changed while opening a control handle; retry after the keeper recovers.")
             yield driver
 
+    def pause_heartbeats_once(self, seconds: float = 5.0) -> dict:
+        """Test-only one-shot pause, acked by the keeper thread itself.
+
+        The pause begins when the heartbeat thread observes it, not when
+        authenticated IPC receives the request. It self-expires; an IPC
+        failure or test runner crash cannot prolong the suppression.
+        """
+        if seconds != 5.0:
+            raise OperationError("M3-B permits only the fixed five-second pause.")
+        with self._fault_lock:
+            if self._fault_used or not self.thread.is_alive():
+                raise OperationError("M3-B pause already used or keeper thread stopped.")
+            self._fault_used = True
+            self._fault_requested = seconds
+        if not self._fault_started.wait(timeout=1.5):
+            raise OperationError("Keeper heartbeat did not acknowledge the bounded fault.")
+        return {"paused": True, "duration_seconds": seconds}
+
     def _run(self) -> None:
         try:
             while not self.stop_event.wait(0.25):
+                now = time.monotonic()
+                with self._fault_lock:
+                    if self._fault_requested:
+                        self._fault_until = now + self._fault_requested
+                        self._fault_requested = 0.0
+                        self._fault_started.set()
+                    paused = now < self._fault_until
+                if paused:
+                    continue
                 try:
                     if self.driver is None:
                         self.driver = self._connect()
@@ -96,8 +130,8 @@ class Keeper:
 
 
 class AgentService:
-    def __init__(self, manager: MonitorManager, health: Health):
-        self.manager, self.health = manager, health
+    def __init__(self, manager: MonitorManager, health: Health, keeper: Keeper | None = None):
+        self.manager, self.health, self.keeper = manager, health, keeper
         self.server = None
         self.stopping = False
 
@@ -116,6 +150,24 @@ class AgentService:
         with self.manager.lock:
             if self.stopping:
                 raise OperationError("The Virtumon agent is stopping.")
+            if operation == "m3_pause_heartbeat":
+                # No public CLI command exposes this fault. It is disabled
+                # unless the keeper was started with the explicit test opt-in.
+                if os.environ.get("VIRTUMON_M3_B_ALLOW") != "YES":
+                    raise OperationError("M3-B heartbeat fault injection is disabled.")
+                if set(request) != {"operation", "name", "uuid"}:
+                    raise OperationError("M3-B request must contain only the expected name and UUID.")
+                if self.keeper is None:
+                    raise OperationError("M3-B keeper fault controller is unavailable.")
+                records = self.manager.store.load()
+                if (len(records) != 1 or
+                        records[0].get("name") != request.get("name") or
+                        records[0].get("id") != request.get("uuid")):
+                    raise OperationError("M3-B requires exactly the named, UUID-matched monitor.")
+                health = self.health.snapshot()
+                if health["timeout"] != 3 or health["error"] is not None or not self.manager._current(records[0]):
+                    raise OperationError("M3-B requires healthy current ownership and a three-second watchdog.")
+                return self.keeper.pause_heartbeats_once()
             if operation == "create":
                 return self.manager.create(request.get("request"))
             if operation == "remove":
@@ -203,7 +255,7 @@ def serve(directory: Path, driver_factory=SudoVDADriver, layout=None) -> None:
         try:
             keeper.start()
             token = secrets.token_hex(32)
-            server = create_server(AgentService(manager, health), token)
+            server = create_server(AgentService(manager, health, keeper), token)
             write_json(directory / "agent.json", {
                 "api_version": 1, "version": __version__, "host": "127.0.0.1",
                 "port": server.server_address[1], "token": token,

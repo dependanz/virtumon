@@ -36,9 +36,16 @@ from simulated CI tests.
   temporary virtual monitor, verified keeper PID termination, stale ownership,
   bounded disappearance from Windows enumeration, exact-name cleanup, physical
   primary retained, and final agent stopped. Kernel watchdog expiry timing was
-  not measured directly; M3-B/C/D/E remain unaccepted.
-- Sleep/reboot recovery, alternate GPU stacks, third monitor, Linux and
-  macOS: not yet accepted.
+  not measured directly.
+- [M3-B keeper-alive heartbeat interruption](windows-m3-heartbeat-2026-11-11.md):
+  **receipt-audited native PASS** on the target Windows 11 machine:
+  five-second bounded heartbeat pause; overdue/error, stale UUID and
+  virtual disappearance observed; the same keeper PID recovered to healthy
+  heartbeat while the UUID remained stale; unsafe creation was refused,
+  exact cleanup succeeded, and the physical primary was unchanged. The
+  test-only fault hook must not ship in a release.
+- M3-C reboot, M3-D sleep/resume, M3-E two-monitor crash/reconnect,
+  alternate GPU stacks, third monitor, Linux and macOS: not yet accepted.
 
 ## Windows 0.2.0 release gates
 
