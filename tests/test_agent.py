@@ -117,6 +117,58 @@ class AgentTests(unittest.TestCase):
         self.assertTrue(self.thread.is_alive())
         self.assertEqual(self.driver_calls, [])
 
+    def test_m3_fault_rejected_without_explicit_optin_or_keeper(self):
+        self.store.save([record()])
+        with patch.dict(os.environ, {"VIRTUMON_M3_B_ALLOW": ""}):
+            code, reply = self.request({"operation": "m3_pause_heartbeat",
+                                        "name": "work",
+                                        "uuid": self.store.load()[0]["id"]}, self.token)
+            self.assertEqual(code, 400)
+            self.assertIn("disabled", reply["error"])
+        with patch.dict(os.environ, {"VIRTUMON_M3_B_ALLOW": "YES"}):
+            code, reply = self.request({"operation": "m3_pause_heartbeat",
+                                        "name": "work",
+                                        "uuid": self.store.load()[0]["id"]}, self.token)
+            self.assertEqual(code, 400)
+            self.assertIn("unavailable", reply["error"])
+        self.assertEqual(self.driver_calls, [])
+
+    def test_m3_fault_requires_exact_uuid_and_current_generation(self):
+        target = record()
+        target.update(session_id=self.manager.session_id, generation=self.health.snapshot()["generation"])
+        self.store.save([target])
+
+        class Fault:
+            def __init__(self):
+                self.calls = 0
+
+            def pause_heartbeats_once(self):
+                self.calls += 1
+                return {"paused": True, "duration_seconds": 5}
+
+        fault = Fault()
+        self.service.keeper = fault
+        # A normal agent test has no real driver; explicitly supply the
+        # required 3-second configured timeout to exercise authorization.
+        self.health.set_timeout(3)
+        self.health.succeed()
+        with patch.dict(os.environ, {"VIRTUMON_M3_B_ALLOW": "YES"}):
+            for bad in (
+                {"operation": "m3_pause_heartbeat", "name": "work", "uuid": str(uuid.uuid4())},
+                {"operation": "m3_pause_heartbeat", "name": "wrong", "uuid": target["id"]},
+                {"operation": "m3_pause_heartbeat", "name": "work",
+                 "uuid": target["id"], "seconds": 100},
+            ):
+                code, answer = self.request(bad, self.token)
+                self.assertEqual(code, 400, answer)
+            self.assertEqual(fault.calls, 0)
+            code, answer = self.request({"operation": "m3_pause_heartbeat",
+                                         "name": "work", "uuid": target["id"]}, self.token)
+            self.assertEqual(code, 200, answer)
+            self.assertEqual(answer["result"]["duration_seconds"], 5)
+            self.assertEqual(fault.calls, 1)
+        self.assertEqual(self.driver_calls, [])
+
     def test_empty_agent_stops_without_driver_removal(self):
         result = self.client.stop()
         self.assertTrue(result["stopped"])
@@ -177,6 +229,38 @@ class HeartbeatTests(unittest.TestCase):
             keeper.start()
         self.assertEqual(calls, ["open", "close"])
         self.assertFalse(keeper.thread.is_alive())
+
+    def test_test_only_heartbeat_pause_self_expires_and_is_one_shot(self):
+        health = Health()
+        calls = []
+
+        class Driver:
+            device_path = "fake-test-driver"
+
+            def open(self):
+                return self
+
+            def watchdog(self):
+                return 3, 3
+
+            def ping(self):
+                calls.append(time.monotonic())
+
+            def close(self):
+                pass
+
+        keeper = Keeper(Driver, health)
+        keeper.start()
+        try:
+            accepted = keeper.pause_heartbeats_once()
+            self.assertEqual(accepted["duration_seconds"], 5.0)
+            at_pause = len(calls)
+            time.sleep(0.6)
+            self.assertEqual(at_pause, len(calls))
+            with self.assertRaisesRegex(OperationError, "already used"):
+                keeper.pause_heartbeats_once()
+        finally:
+            keeper.close()
 
     def test_control_handle_is_pinned_to_keeper_device(self):
         health = Health()
