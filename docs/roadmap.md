@@ -31,9 +31,12 @@ from simulated CI tests.
   harness correctly FAILED when Windows Display Settings moved the virtual
   monitors; selective cleanup was refused and subsequently resolved manually.
   Guarded batch-cleanup harness fix remains in draft awaiting native validation.
-- [M3 keeper termination recovery protocol](windows-m3-recovery-2026-11-11.md):
-  synthetic CI coverage exists; controlled native crash/timeout acceptance
-  still pending.
+- [M3-A keeper termination and watchdog recovery](windows-m3-recovery-2026-11-11.md):
+  **receipt-audited native PASS** on the target Windows 11 machine: one
+  temporary virtual monitor, verified keeper PID termination, stale ownership,
+  bounded disappearance from Windows enumeration, exact-name cleanup, physical
+  primary retained, and final agent stopped. Kernel watchdog expiry timing was
+  not measured directly; M3-B/C/D/E remain unaccepted.
 - Sleep/reboot recovery, alternate GPU stacks, third monitor, Linux and
   macOS: not yet accepted.
 
