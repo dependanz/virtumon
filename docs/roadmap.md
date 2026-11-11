@@ -19,12 +19,26 @@ from simulated CI tests.
 - [M2 25-cycle native repetition acceptance](windows-m2-repetition-2026-11-08.md):
   **audited PASS** (25/25, 60-second soak each), including 50 unique
   owned UUIDs, survivor continuity and restored physical baseline.
-- [M2 one-hour duration attempt](windows-m2-duration-startup-failure-2026-11-09.md):
-  **failed before soak** during creation of the second virtual monitor.
-  Diagnostic and cleanup receipt review pending. This blocks claiming the
-  sustained-duration gate and warrants intermittent hotplug investigation.
-- Sustained duration, sleep/reboot recovery, alternate GPU stacks, third
-  monitor, Linux and macOS: not yet accepted.
+- [M2 first one-hour duration attempt](windows-m2-duration-startup-failure-2026-11-09.md):
+  failed **before** the soak while creating the second virtual monitor.
+  The mode-test reconciliation fix remains in draft; the exact
+  `multi-after-mode-test` branch has not been observed on native hardware.
+- [M2 successful one-hour duration](windows-m2-duration-2026-11-11.md):
+  **receipt-audited PASS** on Windows 11 using the updated experimental build.
+  One 30-second smoke and one 3,600-second two-monitor soak, unchanged
+  physical primary, successful selective removal and full cleanup.
+- [M2 external layout rearrangement](windows-m2-external-layout-change-2026-11-11.md):
+  harness correctly FAILED when Windows Display Settings moved the virtual
+  monitors; selective cleanup was refused and subsequently resolved manually.
+  Guarded batch-cleanup harness fix remains in draft awaiting native validation.
+- [M3-A keeper termination and watchdog recovery](windows-m3-recovery-2026-11-11.md):
+  **receipt-audited native PASS** on the target Windows 11 machine: one
+  temporary virtual monitor, verified keeper PID termination, stale ownership,
+  bounded disappearance from Windows enumeration, exact-name cleanup, physical
+  primary retained, and final agent stopped. Kernel watchdog expiry timing was
+  not measured directly; M3-B/C/D/E remain unaccepted.
+- Sleep/reboot recovery, alternate GPU stacks, third monitor, Linux and
+  macOS: not yet accepted.
 
 ## Windows 0.2.0 release gates
 
@@ -71,10 +85,11 @@ Suggested staged acceptance:
 | Duration | 1 | 3600 seconds | Remote interaction and repeated client reconnect |
 | Recovery | Separate manual protocol | N/A | Watchdog/agent/sleep events require separate precautions |
 
-The smoke stage has a verified receipt. The 25-cycle repetition stage has
-completed successfully and its uploaded JSON receipt has passed the event,
-UUID and cleanup audit. Do not start the one-hour duration stage until
-the previous stage has a verified native receipt and clean physical baseline.
+The smoke, 25-cycle repetition, and one-hour uninterrupted fixed-layout
+duration stages have now passed native acceptance and independent JSON
+receipt audits on the tested Windows 11 laptop. These results do not
+establish recovery from unexpected keeper termination or exercise the new
+external-layout batch-cleanup fallback; those are separate M3/harness gates.
 If the process is forcibly terminated, inspect the state before cleanup;
 remove ONLY the test-generated names. Do not delete ownership files.
 
