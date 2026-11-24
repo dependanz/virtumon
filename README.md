@@ -2,14 +2,21 @@
 
 **Your desktop, expanded.**
 
-Virtumon is a command-line toolkit for virtual monitors. It can inspect the
-active Windows desktop, and the Windows management candidate adds named virtual
-monitors through the separately installed SudoVDA driver.
+Virtumon is growing into a cross-platform desktop toolkit with three parts:
+virtual displays, its own remote-desktop host and client, and a window organizer
+with cross-app tabs and custom layouts. The current implementation is the
+Windows display CLI and its experimental management backend; the remote
+desktop and organizer are planned work.
 
 **Release status:** PyPI version **0.1.0** provides the banner, display listing,
-and diagnostics. The **0.2.0a1** candidate on `feature/windows-virtual-monitors`
-adds Windows monitor management. It needs a successful test on a real Windows
-desktop before release; it is not automatically published to PyPI.
+and diagnostics. The **0.2.0a1** Windows candidate is developed in a stack of
+draft branches, most recently `feature/windows-m3-heartbeat-outage`. Native
+single-display, two-display, repetition, one-hour duration, and two bounded
+recovery checks have passed on the recorded Windows 11 laptop. The candidate
+remains unreleased, with specific compatibility and recovery gates open.
+See the [M0 baseline](docs/m0-baseline-2026-11-24.md) for exact commits,
+evidence boundaries and remaining work, and the
+[product roadmap](docs/product-roadmap.md) for the expanded scope.
 
 ## Install the published release
 
@@ -57,10 +64,13 @@ now has a passing native Windows 11 test: two independently attached virtual
 screens stayed active after five seconds, removing `chat` preserved `work`
 with its original UUID and geometry, and the remaining output was removable.
 It captures the pre-removal layout and can reattach a verified owned clone
-while preserving non-owned CCD signal modes. The user subsequently reported a [5/5 Chrome Remote Desktop PASS](docs/windows-crd-acceptance-2026-11-08.md)
-for multi-display viewing, interaction with both virtual screens, display
-switching and reconnecting the remote client. Broader stability, sleep and host
-restart behavior still need validation.
+while preserving non-owned CCD signal modes. The
+[legacy Windows roadmap](docs/roadmap.md) also records a user-reported 5/5
+Chrome Remote Desktop interaction check. That is historical third-party
+compatibility evidence; Virtumon's own remote host and client are not yet
+implemented. Later branches passed the
+[one-hour fixed-layout soak](docs/windows-m2-duration-2026-11-11.md).
+Sleep/resume, reboot and broader compatibility remain open.
 Exact-name removal always uses the recorded UUID.
 
 ```console
@@ -121,9 +131,14 @@ The candidate targets 64-bit Windows 10/11 with a compatible SudoVDA driver.
 A [native Windows 11 acceptance run](docs/windows-acceptance-2026-11-07.md)
 passed creation of a 1280 x 720, 60 Hz monitor, background lifetime beyond the
 driver watchdog interval, and selective removal while preserving the physical
-desktop. Multiple concurrent virtual monitors and remote-desktop capture still
-need hardware verification. A virtual monitor must appear in the same desktop
-session that the remote-desktop application captures.
+desktop. Later native reports also credit
+[two concurrent virtual monitors](docs/windows-acceptance-2026-11-08.md),
+[25 complete cycles](docs/windows-m2-repetition-2026-11-08.md),
+[one hour of continuous operation](docs/windows-m2-duration-2026-11-11.md),
+[keeper termination](docs/windows-m3-recovery-2026-11-11.md), and
+[heartbeat interruption](docs/windows-m3-heartbeat-2026-11-11.md).
+These passes apply to their recorded Windows setup and tested scenarios;
+they do not establish Virtumon's planned capture or remote-control pipeline.
 
 From the repository in PowerShell, the acceptance script is read-only by default:
 
@@ -150,8 +165,9 @@ passed three cycles with an audited receipt. The follow-up
 [25-cycle repetition run](docs/windows-m2-repetition-2026-11-08.md) completed
 25/25 cycles and the uploaded JSON receipt passed the event and UUID audit.
 
-See the [0.2 release gates and native reliability runner](docs/roadmap.md) and
-the [proposed cross-platform monitor API](docs/architecture.md). The reliability
+See the [product milestones](docs/product-roadmap.md),
+[legacy Windows release gates and native reliability runner](docs/roadmap.md),
+and [proposed display-subsystem API](docs/architecture.md). The reliability
 runner is **read-only by default** and requires explicit `--exercise` before it
 creates any displays. Hardware tests must run locally, not in hosted CI:
 
@@ -162,7 +178,11 @@ $env:VIRTUMON_EXPERIMENTAL_MULTI = '1'
 
 It refuses an existing keeper or managed display, uses generated names, checks
 both Windows and Virtumon display records, and saves a local diagnostic receipt.
-Long-duration and recovery acceptance remain unverified.
+The one-hour fixed-layout soak and bounded single-display keeper-crash and
+heartbeat-outage recovery have passed. Native execution of the intermittent
+post-mode-test route, external-layout batch cleanup, reboot, sleep/resume and
+two-display crash/reconnect remain open. The experimental heartbeat fault
+hook must be removed or excluded from a release build.
 
 ## Development
 

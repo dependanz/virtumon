@@ -1,10 +1,16 @@
-# Virtumon release roadmap
+# Windows virtual-display roadmap (legacy milestone numbers)
+
+This document preserves the original Windows M1-M8 gates and M3-A-M3-E
+scenario names. They are separate from the expanded product's M0 baseline,
+M1 foundation, M2 remote desktop and M3 window organizer. Use the
+[product roadmap](product-roadmap.md) and
+[November 24 M0 baseline](m0-baseline-2026-11-24.md) for current planning.
 
 Proposed milestones, not commitments that every platform works today.
 Hardware observations and user-reported acceptance must remain distinct
 from simulated CI tests.
 
-## Baseline: November 8, 2026
+## Windows evidence through November 11, 2026
 
 - PyPI 0.1.0: read-only Windows discovery.
 - Unreleased Windows preview 0.2.0a1: SudoVDA monitor create/list/remove.

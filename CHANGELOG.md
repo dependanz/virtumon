@@ -1,5 +1,19 @@
 # Changelog
 
+## Product M0 baseline review - 2026-11-24 (documentation)
+
+- Consolidate branch provenance, native Windows acceptance and fresh
+  installed-wheel validation in the [M0 baseline](docs/m0-baseline-2026-11-24.md).
+- Record the current read-only `MSI` snapshot: clean checkout at `1be811a`,
+  installed candidate location, SudoVDA readiness and physical-only desktop.
+- Define the expanded product scope: virtual displays, Virtumon's own remote
+  host/client, and cross-app tab groups with arbitrary window layouts.
+- Draft shared contracts, platform feasibility work and measurement criteria;
+  retain separate names for the original Windows release gates.
+- Correct current status summaries to credit the completed repetition,
+  one-hour duration and bounded recovery checks. Historical reports retain
+  their original dated observations. This entry changes no runtime behavior.
+
 ## Experimental multi-monitor branch (unreleased)
 
 - Add opt-in `VIRTUMON_EXPERIMENTAL_MULTI=1` for a guarded two-monitor
@@ -18,8 +32,9 @@
   passed on Windows 11: both outputs survived beyond the watchdog, exact-name
   removal of `chat` preserved `work`'s UUID and position after five seconds,
   and final removal of `work` stopped the keeper cleanly.
-- Chrome Remote Desktop interaction, prolonged runtime, reconnection, sleep/
-  resume and mixed-hardware compatibility still require verification before release.
+- Later branches passed repetition, a one-hour fixed-layout soak and bounded
+  single-monitor recovery, as consolidated in the M0 baseline. Sleep/resume,
+  reboot, two-monitor crash/reconnect and broader compatibility remain open.
 
 ## 0.2.0a1 - Unreleased Windows preview
 
@@ -59,8 +74,9 @@
   and selective removal with the original physical desktop preserved.
 
 This preview requires a separately installed SudoVDA driver. The basic native
-cycle passed on Windows 11; concurrent monitors and remote-desktop behavior
-still require hardware verification. macOS and Linux creation are not
+cycle passed on Windows 11; concurrent-monitor acceptance belongs to the
+experimental branch described above. Virtumon's own remote-desktop behavior
+still requires implementation and native validation. macOS and Linux creation are not
 implemented. No driver is bundled or installed automatically; the keeper
 communicates only over localhost.
 

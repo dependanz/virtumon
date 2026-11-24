@@ -3,8 +3,10 @@
 This document describes the **unreleased Virtumon 0.2.0a1 candidate**. The
 published 0.1.0 package only provides display discovery. A
 [native Windows 11 create/list/heartbeat/remove cycle](windows-acceptance-2026-11-07.md)
-has passed. Concurrent monitors and the intended remote-desktop workflow remain
-the next hardware checks. A subsequent two-monitor experiment found that
+has passed. The original single-monitor branch's limits and the experimental
+two-monitor implementation are distinguished below. See the
+[M0 baseline](m0-baseline-2026-11-24.md) for the later repetition, duration and
+bounded recovery passes. An early two-monitor experiment found that
 adding `chat` made Windows re-clone the existing `work` monitor onto the
 physical screen while `chat` appeared independently at `work`'s old
 position. Removing `chat` did not restore `work`. This candidate therefore
@@ -18,8 +20,10 @@ of all managed paths. If the first display has already become cloned,
 The guarded multi-monitor implementation is isolated on
 `feature/windows-multi-monitor-reconcile` and is **not enabled by default**.
 The normal `feature/windows-virtual-monitors` branch continues to block a
-second monitor. This experimental version has synthetic topology tests but has
-**not** passed a real two-monitor Windows hardware run.
+second monitor. The revised experimental implementation passed a
+[native two-monitor lifecycle and selective-removal run](windows-acceptance-2026-11-08.md).
+Later branches passed repetition and a one-hour fixed-layout soak; specific
+failure paths and broader compatibility remain unaccepted.
 
 The test must start with **zero managed monitors and a stopped agent**. In
 the normal desktop PowerShell session, set the variable *before the first*
@@ -278,7 +282,10 @@ other display.
 The candidate containing this fix passed a
 [native single-monitor lifecycle test](windows-acceptance-2026-11-07.md).
 The console output does not identify the internal configuration path used;
-remote-desktop behavior and concurrent virtual monitors remain unverified.
+that single-monitor record did not test concurrent monitors or remote
+interaction. The later [two-monitor acceptance](windows-acceptance-2026-11-08.md)
+and the [M0 baseline](m0-baseline-2026-11-24.md) record the additional native
+evidence and the qualified third-party remote-interaction report.
 
 ### JSON output
 

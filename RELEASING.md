@@ -15,9 +15,14 @@ beyond the watchdog interval, and removal preserving the original physical
 desktop. A separate [native two-monitor acceptance result](docs/windows-acceptance-2026-11-08.md)
 passed on experimental commit `8e1ffca`: two independent virtual desktops,
 five-second heartbeat, selective removal of `chat` preserving `work`, and clean
-removal/agent shutdown. This is a single machine/session verification;
-Chrome Remote Desktop interaction, prolonged stability, sleep/reconnect,
-and other hardware configurations remain unverified.
+removal/agent shutdown. Later records credit a 25-cycle repetition run,
+one-hour fixed-layout soak, single-monitor keeper crash and bounded heartbeat
+outage on the recorded laptop. The [M0 baseline](docs/m0-baseline-2026-11-24.md)
+consolidates their evidence and remaining native gates. In particular, sleep,
+reboot, two-monitor crash/reconnect and broader hardware compatibility remain
+open, and the experimental heartbeat fault hook must be removed or excluded
+from release builds. A historical user report of Chrome Remote Desktop
+interaction does not establish Virtumon's planned own remote-desktop pipeline.
 
 Feature-branch and pull-request workflows build distributions and run tests;
 they do not publish. Manual publication through the workflow is limited to
