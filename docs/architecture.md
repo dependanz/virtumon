@@ -1,13 +1,18 @@
-# Portable virtual-monitor architecture (design proposal)
+# Display-subsystem architecture (design proposal)
 
 ## Mission
 
-Virtumon is the monitor-creation counterpart to window libraries like GLFW:
+This document covers Virtumon's display subsystem. The expanded product also
+includes its own remote-desktop host/client and cross-app window organization;
+see the [shared product contracts](product-contracts.md).
+
+The display subsystem is the monitor-creation counterpart to window libraries like GLFW:
 discover outputs, request new OS-recognized virtual monitors, place and
 configure them, then manage their ownership and lifetime with one common API.
 
-This does NOT mean Virtumon creates application windows, implements a
-streaming/capture protocol, or replaces the OS compositor/window manager.
+Display providers manage outputs. Separate capture, remote-session and window
+providers use those outputs through the shared contracts. The product does not
+need to replace the OS compositor or embed foreign application windows.
 An output attached to an existing user desktop differs from a separate
 headless desktop session; handle those concepts with distinct capabilities.
 

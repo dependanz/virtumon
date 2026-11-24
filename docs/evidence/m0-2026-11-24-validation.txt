@@ -1,0 +1,79 @@
+{
+  "source_sha": "86d9eca0423071560b692219b80d4a60321f3ec2",
+  "snapshot": "/workspace/scratch/d0b0318fff78/validation/source-86d9eca",
+  "started_utc": "2026-11-24T19:16:28.108121+00:00",
+  "python": "3.12.14 (main, Aug 25 2026, 14:00:49) [Clang 22.1.3 ]",
+  "platform": "Linux-6.18.57-x86_64-with-glibc2.41",
+  "scope": "Driver-free Linux installed-wheel regression and package metadata checks; no native Windows displays changed."
+}
+
+COMMAND /opt/codex/runtimes/codex-primary-runtime/dependencies/python/bin/python -m venv /workspace/scratch/d0b0318fff78/validation/test-venv
+CWD /workspace/scratch/d0b0318fff78/validation
+EXIT 0
+
+COMMAND /workspace/scratch/d0b0318fff78/validation/test-venv/bin/python -m pip install build twine
+CWD /workspace/scratch/d0b0318fff78/validation
+EXIT 0
+
+COMMAND /workspace/scratch/d0b0318fff78/validation/test-venv/bin/python -m build --outdir /workspace/scratch/d0b0318fff78/validation/dist
+CWD /workspace/scratch/d0b0318fff78/validation/source-86d9eca
+EXIT 0
+
+COMMAND /workspace/scratch/d0b0318fff78/validation/test-venv/bin/python -m twine check --strict /workspace/scratch/d0b0318fff78/validation/dist/virtumon-0.2.0a1-py3-none-any.whl /workspace/scratch/d0b0318fff78/validation/dist/virtumon-0.2.0a1.tar.gz
+CWD /workspace/scratch/d0b0318fff78/validation
+EXIT 0
+Checking
+/workspace/scratch/d0b0318fff78/validation/dist/virtumon-0.2.0a1-py3-none-any.wh
+l: PASSED
+Checking
+/workspace/scratch/d0b0318fff78/validation/dist/virtumon-0.2.0a1.tar.gz: PASSED
+
+COMMAND /workspace/scratch/d0b0318fff78/validation/test-venv/bin/python -m pip install --no-deps /workspace/scratch/d0b0318fff78/validation/dist/virtumon-0.2.0a1-py3-none-any.whl
+CWD /workspace/scratch/d0b0318fff78/validation
+EXIT 0
+
+COMMAND /workspace/scratch/d0b0318fff78/validation/test-venv/bin/python -m unittest discover -s tests -v
+CWD /workspace/scratch/d0b0318fff78/validation/source-86d9eca
+EXIT 0
+test_survivor_keeps_independent_mode_without_unnecessary_setdisplayconfig (test_windows_removal.SelectiveRemovalTopologyTests.test_survivor_keeps_independent_mode_without_unnecessary_setdisplayconfig) ... ok
+test_validation_failure_never_applies (test_windows_removal.SelectiveRemovalTopologyTests.test_validation_failure_never_applies) ... ok
+test_wrong_removed_identity_prevents_any_repair_write (test_windows_removal.SelectiveRemovalTopologyTests.test_wrong_removed_identity_prevents_any_repair_write) ... ok
+
+----------------------------------------------------------------------
+Ran 236 tests in 3.523s
+
+OK (skipped=11)
+SKIPPED TESTS
+test_windows_list_json_enumerates_real_desktop (test_cli_smoke.InstalledCliSmokeTests.test_windows_list_json_enumerates_real_desktop) ... skipped 'requires real Windows display APIs'
+test_windows_native_probe_does_not_create_or_remove_displays (test_sudovda.SudoVDAAbiTests.test_windows_native_probe_does_not_create_or_remove_displays) ... skipped 'read-only native Windows probe'
+test_explicit_interpreter_path_runs_all_read_only_checks (test_verify_windows.WindowsVerificationScriptTests.test_explicit_interpreter_path_runs_all_read_only_checks) ... skipped 'requires Windows PowerShell/PowerShell and display discovery'
+test_failed_cleanup_lookup_still_attempts_targeted_removal (test_verify_windows.WindowsVerificationScriptTests.test_failed_cleanup_lookup_still_attempts_targeted_removal) ... skipped 'requires Windows PowerShell/PowerShell and display discovery'
+test_failed_create_already_rolled_back_skips_redundant_removal (test_verify_windows.WindowsVerificationScriptTests.test_failed_create_already_rolled_back_skips_redundant_removal) ... skipped 'requires Windows PowerShell/PowerShell and display discovery'
+test_failed_create_with_retained_record_removes_only_that_name (test_verify_windows.WindowsVerificationScriptTests.test_failed_create_with_retained_record_removes_only_that_name) ... skipped 'requires Windows PowerShell/PowerShell and display discovery'
+test_failed_create_with_unmanaged_display_does_not_verify_cleanup (test_verify_windows.WindowsVerificationScriptTests.test_failed_create_with_unmanaged_display_does_not_verify_cleanup) ... skipped 'requires Windows PowerShell/PowerShell and display discovery'
+test_missing_interpreter_reports_failure_before_launching (test_verify_windows.WindowsVerificationScriptTests.test_missing_interpreter_reports_failure_before_launching) ... skipped 'requires Windows PowerShell/PowerShell and display discovery'
+test_multiple_discovered_applications_use_only_first_interpreter (test_verify_windows.WindowsVerificationScriptTests.test_multiple_discovered_applications_use_only_first_interpreter) ... skipped 'requires Windows PowerShell/PowerShell and display discovery'
+test_capture_and_enrich_real_user32_metadata_without_changing_displays (test_windows_diagnostics.NativeWindowsDiagnosticsTests.test_capture_and_enrich_real_user32_metadata_without_changing_displays) ... skipped 'Read-only native Windows diagnostics probe'
+Exercise actual User32 structures/prototypes; never change a mode. ... skipped 'Read-only native Windows API probe'
+
+PACKAGE METADATA AND INTEGRITY
+{
+  "python": "3.12.14 (main, Aug 25 2026, 14:00:49) [Clang 22.1.3 ]",
+  "virtumon_version": "0.2.0a1",
+  "import_path": "/workspace/scratch/d0b0318fff78/validation/test-venv/lib/python3.12/site-packages/virtumon/__init__.py",
+  "build_version": "1.6.1",
+  "twine_version": "7.0.0",
+  "distributions": [
+    {
+      "name": "virtumon-0.2.0a1-py3-none-any.whl",
+      "bytes": 62302,
+      "sha256": "3e33690923bf4bc50af5e012f681a1143af26cd224faee71f7a3235c6d645787"
+    },
+    {
+      "name": "virtumon-0.2.0a1.tar.gz",
+      "bytes": 144977,
+      "sha256": "77bee6d1d5326c000e34a4c73b3263dc42665879d9b51d1b1447fce8680ae620"
+    }
+  ],
+  "source_status": ""
+}
